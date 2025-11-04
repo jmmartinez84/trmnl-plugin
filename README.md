@@ -21,17 +21,35 @@ Esta función se ejecuta automáticamente dos veces al día para:
 
 ## Horarios de Ejecución
 
-La función está configurada con un time trigger que se ejecuta:
+La función está configurada con un **time trigger que se ejecuta cada 15 minutos** durante las horas relevantes:
 
-### Horario de Invierno (CET = UTC+1)
-- **Primera ejecución**: 7:50 AM hora española (6:50 AM UTC) → Obtiene ruta para las 8:05 AM
-- **Segunda ejecución**: 1:50 PM hora española (12:50 PM UTC) → Obtiene ruta para las 2:05 PM
+### Schedule de Ejecución
+- **Frecuencia**: Cada 15 minutos
+- **Días**: Lunes a Viernes
+- **Horario UTC**: 6:00-9:59 y 12:00-15:59
+- **Cron**: `0 */15 6-9,12-15 * * 1-5`
 
-### Horario de Verano (CEST = UTC+2)
-- **Primera ejecución**: 7:50 AM hora española (5:50 AM UTC) → Obtiene ruta para las 8:05 AM
-- **Segunda ejecución**: 1:50 PM hora española (11:50 AM UTC) → Obtiene ruta para las 2:05 PM
+### Ventanas de Tiempo Activas (Hora Española)
 
-**Nota**: Para ajustar automáticamente al horario de verano, necesitarás actualizar el cron schedule en `function_app.py` o usar una zona horaria específica en la configuración de Azure.
+La función solo **obtiene datos de Google Maps** durante estas ventanas:
+
+**Ventana Mañana**: 7:30 AM - 9:00 AM
+- Actualizaciones cada 15 minutos con tráfico en tiempo real
+- Ejemplo: 7:30, 7:45, 8:00, 8:15, 8:30, 8:45, 9:00
+
+**Ventana Tarde**: 1:30 PM (13:30) - 2:45 PM (14:45)
+- Actualizaciones cada 15 minutos con tráfico en tiempo real
+- Ejemplo: 13:30, 13:45, 14:00, 14:15, 14:30, 14:45
+
+### Comportamiento Fuera de Ventanas
+
+Fuera de las ventanas activas (7:30-9:00 y 13:30-14:45):
+- La función **NO hace llamadas a Google Maps API**
+- Solo actualiza `show_routes=false` en el webhook
+- Las rutas se ocultan automáticamente en la pantalla TRMNL
+- Ahorra costos de API y reduce tráfico innecesario
+
+**Nota**: La función ajusta automáticamente al horario de verano/invierno español usando la zona horaria `Europe/Madrid`.
 
 ## Requisitos
 
@@ -242,31 +260,48 @@ La función envía un POST request con JSON al webhook de TRMNL usando el format
 ```
 
 **Variables disponibles en la template de TRMNL:**
-- `{{ eta_directo }}`: Tiempo estimado Casa → Colegio (formato: "XX min")
-- `{{ eta_con_hospital }}`: Tiempo estimado Casa → Hospital → Colegio (formato: "XX min")
-- `{{ departure_time }}`: Hora de salida programada en hora española
+- `{{ show_routes }}`: Boolean - true solo entre 7:30-9:00 y 13:30-14:45 (controla visibilidad)
+- `{{ eta_directo }}`: Tiempo estimado Casa → Colegio (formato: "XX min") *
+- `{{ eta_con_hospital }}`: Tiempo estimado Casa → Hospital → Colegio (formato: "XX min") *
+- `{{ departure_time }}`: Hora de salida programada en hora española *
 - `{{ timestamp }}`: Timestamp UTC de cuando se ejecutó la función
-- `{{ distance_directo_km }}`: Distancia de la ruta directa en km
-- `{{ distance_hospital_km }}`: Distancia de la ruta con hospital en km
-- `{{ eta_directo_seconds }}`: Duración en formato Google Maps (ej: "1080s")
-- `{{ eta_con_hospital_seconds }}`: Duración en formato Google Maps (ej: "1680s")
+- `{{ distance_directo_km }}`: Distancia de la ruta directa en km *
+- `{{ distance_hospital_km }}`: Distancia de la ruta con hospital en km *
+- `{{ eta_directo_seconds }}`: Duración en formato Google Maps (ej: "1080s") *
+- `{{ eta_con_hospital_seconds }}`: Duración en formato Google Maps (ej: "1680s") *
+
+\* *Solo presentes cuando `show_routes=true`*
 
 ### Cómo usar las variables en tu template TRMNL
 
+**IMPORTANTE**: Usa la variable `show_routes` para controlar la visibilidad:
+
 ```liquid
-{% if materias.size > 0 and es_festivo == false %}
+{% comment %} Control de visibilidad basado en hora {% endcomment %}
+{% if show_routes and eta_directo %}
+  {% assign mostrar_etas = true %}
+  {% assign eta_directo_display = eta_directo %}
+  {% assign eta_con_hospital_display = eta_con_hospital %}
+{% else %}
+  {% assign mostrar_etas = false %}
+{% endif %}
+
+{% comment %} Mostrar ETAs solo si show_routes=true, hay materias y no es festivo {% endcomment %}
+{% if materias.size > 0 and es_festivo == false and mostrar_etas %}
   <div class="eta-container">
     <div class="eta-item">
-      <div class="eta-tiempo">{{ eta_directo }}</div>
+      <div class="eta-tiempo">{{ eta_directo_display }}</div>
       <div class="eta-label">Casa → Colegio</div>
     </div>
     <div class="eta-item">
-      <div class="eta-tiempo">{{ eta_con_hospital }}</div>
+      <div class="eta-tiempo">{{ eta_con_hospital_display }}</div>
       <div class="eta-label">Casa → Hospital → Colegio</div>
     </div>
   </div>
 {% endif %}
 ```
+
+Ver archivo `trmnl_template_updated.liquid` para instrucciones completas de integración.
 
 ## Monitoreo
 
@@ -311,11 +346,21 @@ Asegúrate de que la variable de entorno esté configurada correctamente en Azur
 
 ### Google Maps API
 - Routes API: Consulta la [página de precios](https://developers.google.com/maps/billing-and-pricing/pricing)
-- Aproximadamente 2 consultas por día = ~60 consultas/mes
+- **2 rutas por ejecución** (directa + hospital)
+- **Ventana mañana**: ~7 ejecuciones × 2 rutas = 14 llamadas/día
+- **Ventana tarde**: ~6 ejecuciones × 2 rutas = 12 llamadas/día
+- **Total**: ~26 llamadas/día × 5 días/semana = **~520 llamadas/mes**
 
 ### Azure Functions
 - Plan de Consumo: Primeras 1M ejecuciones gratis cada mes
-- Esta función: ~60 ejecuciones/mes (muy por debajo del límite gratuito)
+- Esta función se ejecuta cada 15 min de 6-10 y 12-16 UTC (lunes a viernes)
+- **Total**: ~40 ejecuciones/día × ~22 días laborables = **~880 ejecuciones/mes**
+- Muy por debajo del límite gratuito de 1M
+
+### Optimización de Costos
+- Solo hace llamadas a Google Maps durante ventanas activas (7:30-9:00 y 13:30-14:45)
+- Fuera de esas ventanas, solo actualiza visibilidad (sin costo de Google Maps)
+- Ahorra ~70% de costos vs ejecutar todo el día
 
 ## Licencia
 

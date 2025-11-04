@@ -98,6 +98,39 @@ def calculate_departure_time() -> datetime:
 
     return departure_time
 
+def should_show_routes() -> bool:
+    """
+    Determina si las rutas deben mostrarse basándose en la hora española actual.
+
+    Las rutas solo se muestran en estos horarios (hora española):
+    - Entre 7:30 AM y 9:00 AM
+    - Entre 1:30 PM (13:30) y 2:45 PM (14:45)
+
+    Returns:
+        True si las rutas deben mostrarse, False en caso contrario
+    """
+    spanish_tz = tz.gettz('Europe/Madrid')
+    now_spanish = datetime.now(spanish_tz)
+
+    # Obtener hora y minuto actual en hora española
+    current_hour = now_spanish.hour
+    current_minute = now_spanish.minute
+
+    # Convertir a minutos desde medianoche para facilitar comparación
+    current_time_minutes = current_hour * 60 + current_minute
+
+    # Definir rangos de tiempo en minutos desde medianoche
+    morning_start = 7 * 60 + 30   # 7:30 AM = 450 minutos
+    morning_end = 9 * 60           # 9:00 AM = 540 minutos
+    afternoon_start = 13 * 60 + 30 # 1:30 PM = 810 minutos
+    afternoon_end = 14 * 60 + 45   # 2:45 PM = 885 minutos
+
+    # Verificar si está en alguno de los rangos
+    in_morning_window = morning_start <= current_time_minutes <= morning_end
+    in_afternoon_window = afternoon_start <= current_time_minutes <= afternoon_end
+
+    return in_morning_window or in_afternoon_window
+
 def format_duration_as_minutes(duration_str: str) -> str:
     """
     Convierte una duración en formato "XXXs" a "XX min".
@@ -114,6 +147,45 @@ def format_duration_as_minutes(duration_str: str) -> str:
         return f"{duration_minutes} min"
     return "N/A"
 
+def send_visibility_only_to_webhook(show_routes: bool) -> dict:
+    """
+    Envía solo el estado de visibilidad al webhook de TRMNL sin datos de rutas.
+    Se usa cuando estamos fuera de la ventana de tiempo activa.
+
+    Args:
+        show_routes: Si las rutas deben mostrarse o no
+
+    Returns:
+        Resultado del envío al webhook
+    """
+    payload = {
+        "merge_variables": {
+            "show_routes": show_routes,
+            "timestamp": datetime.now(tz.UTC).isoformat()
+        }
+    }
+
+    try:
+        headers = {"Content-Type": "application/json"}
+        response = requests.post(TRMNL_WEBHOOK_URL, json=payload, headers=headers, timeout=10)
+        response.raise_for_status()
+
+        logging.info(f'✓ Estado de visibilidad enviado al webhook TRMNL')
+        logging.info(f'  - Mostrar rutas: {show_routes}')
+
+        return {
+            "success": True,
+            "status_code": response.status_code,
+            "response": response.text
+        }
+    except requests.exceptions.RequestException as e:
+        logging.error(f'✗ Error al enviar al webhook TRMNL: {str(e)}')
+        return {
+            "success": False,
+            "error": str(e),
+            "status_code": getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
+        }
+
 def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_time: datetime) -> dict:
     """
     Envía los datos de las rutas al webhook de TRMNL en formato merge_variables.
@@ -129,10 +201,14 @@ def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_t
     spanish_tz = tz.gettz('Europe/Madrid')
     departure_time_spanish = departure_time.astimezone(spanish_tz)
 
+    # Determinar si se deben mostrar las rutas
+    show_routes = should_show_routes()
+
     # Inicializar merge_variables
     merge_vars = {
         "departure_time": departure_time_spanish.strftime("%Y-%m-%d %H:%M:%S %Z"),
         "timestamp": datetime.now(tz.UTC).isoformat(),
+        "show_routes": show_routes,
         "eta_directo": "N/A",
         "eta_con_hospital": "N/A"
     }
@@ -172,6 +248,7 @@ def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_t
         response.raise_for_status()
 
         logging.info(f'✓ Datos enviados exitosamente al webhook TRMNL')
+        logging.info(f'  - Mostrar rutas: {merge_vars["show_routes"]}')
         logging.info(f'  - ETA directo: {merge_vars["eta_directo"]}')
         logging.info(f'  - ETA con hospital: {merge_vars["eta_con_hospital"]}')
         logging.info(f'Status code: {response.status_code}')
@@ -189,19 +266,20 @@ def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_t
             "status_code": getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
         }
 
-@app.timer_trigger(schedule="0 50 6,12 * * *", arg_name="myTimer", run_on_startup=False,
+@app.timer_trigger(schedule="0 */15 6-9,12-15 * * 1-5", arg_name="myTimer", run_on_startup=False,
               use_monitor=False)
 def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
     """
-    Función de Azure que se ejecuta dos veces al día para obtener información de ruta.
+    Función de Azure que se ejecuta cada 15 minutos durante las horas activas.
 
     Horarios de ejecución (UTC):
-    - 6:50 AM UTC (7:50 AM hora española en invierno / 8:50 AM en verano)
-    - 12:50 PM UTC (1:50 PM hora española en invierno / 2:50 PM en verano)
+    - Cada 15 minutos entre las 6:00-9:59 UTC (cubre 7:30-9:00 hora española)
+    - Cada 15 minutos entre las 12:00-15:59 UTC (cubre 13:30-14:45 hora española)
+    - Solo de lunes a viernes (1-5)
 
-    Nota: Para horario de verano español (CEST = UTC+2), los triggers serían:
-    - 5:50 AM UTC para obtener ruta de 8:05 AM CEST
-    - 11:50 AM UTC para obtener ruta de 2:05 PM CEST
+    La función verifica internamente si está en la ventana de tiempo correcta
+    (7:30-9:00 o 13:30-14:45 hora española) antes de hacer las llamadas a Google Maps.
+    Fuera de esas ventanas, solo actualiza show_routes=false.
     """
     utc = tz.UTC
     spanish_tz = tz.gettz('Europe/Madrid')
@@ -213,11 +291,30 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
     logging.info(f'Timer trigger ejecutado a las {current_time_utc.strftime("%Y-%m-%d %H:%M:%S")} UTC')
     logging.info(f'Hora española: {current_time_spanish.strftime("%Y-%m-%d %H:%M:%S %Z")}')
 
+    # Verificar si estamos en la ventana de tiempo para mostrar rutas
+    show_routes = should_show_routes()
+    logging.info(f'📊 Estado: Mostrar rutas = {show_routes}')
+
+    if not show_routes:
+        # Fuera de la ventana de tiempo: solo actualizamos visibilidad, no hacemos llamadas a Google Maps
+        logging.info('⏰ Fuera de la ventana de tiempo activa (7:30-9:00 / 13:30-14:45)')
+        logging.info('📤 Enviando solo estado de visibilidad al webhook...')
+        webhook_result = send_visibility_only_to_webhook(show_routes=False)
+
+        if webhook_result['success']:
+            logging.info(f'✓ Estado actualizado exitosamente')
+        else:
+            logging.error(f'✗ Error al actualizar estado: {webhook_result.get("error", "Unknown error")}')
+        return
+
+    # Dentro de la ventana de tiempo: obtener rutas de Google Maps
+    logging.info('✅ Dentro de la ventana de tiempo activa - obteniendo rutas actualizadas')
+
     # Calcular tiempo de salida (15 minutos después)
     departure_time = calculate_departure_time()
     departure_time_spanish = departure_time.astimezone(spanish_tz)
 
-    logging.info(f'Calculando ruta para salida a las {departure_time_spanish.strftime("%H:%M:%S")} hora española')
+    logging.info(f'🚗 Calculando ruta para salida a las {departure_time_spanish.strftime("%H:%M:%S")} hora española')
 
     # Obtener API key desde configuración
     api_key = os.environ.get('GOOGLE_MAPS_API_KEY')
@@ -267,8 +364,8 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
     else:
         logging.error(f'  ✗ Error al obtener ruta con hospital: {route_hospital.get("error")}')
 
-    # Enviar datos al webhook de TRMNL (aunque una ruta falle, enviamos lo que tengamos)
-    logging.info('📤 Enviando datos al webhook de TRMNL...')
+    # Enviar datos completos al webhook de TRMNL (aunque una ruta falle, enviamos lo que tengamos)
+    logging.info('📤 Enviando datos completos al webhook de TRMNL...')
     webhook_result = send_to_trmnl_webhook(route_directo, route_hospital, departure_time)
 
     if webhook_result['success']:

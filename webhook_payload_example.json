@@ -2,8 +2,10 @@
   "description": "Ejemplo del payload JSON que se envía al webhook de TRMNL",
   "note": "Este es un ejemplo de los datos que la función envía automáticamente a TRMNL después de obtener las rutas de Google Maps. Usa el formato 'merge_variables' requerido por TRMNL.",
   "webhook_url": "https://usetrmnl.com/api/custom_plugins/3f6873b7-8fb9-43c3-a3c3-3438092d4a87",
-  "payload_example": {
+  "payload_example_within_time_window": {
+    "note": "Payload enviado entre 7:30-9:00 o 13:30-14:45 (hora española) con datos de Google Maps",
     "merge_variables": {
+      "show_routes": true,
       "departure_time": "2025-11-04 08:05:00 CET",
       "timestamp": "2025-11-04T07:50:00.123456Z",
       "eta_directo": "18 min",
@@ -12,6 +14,13 @@
       "eta_con_hospital_seconds": "1680s",
       "distance_directo_km": 12.5,
       "distance_hospital_km": 15.3
+    }
+  },
+  "payload_example_outside_time_window": {
+    "note": "Payload enviado fuera de las ventanas de tiempo (sin llamadas a Google Maps)",
+    "merge_variables": {
+      "show_routes": false,
+      "timestamp": "2025-11-04T10:30:00.123456Z"
     }
   },
   "routes_calculated": {
@@ -27,14 +36,25 @@
     ]
   },
   "fields_description": {
-    "departure_time": "Hora de salida programada en zona horaria española (CET/CEST)",
+    "show_routes": "Boolean - true solo entre 7:30-9:00 y 13:30-14:45 hora española. Controla visibilidad en template",
+    "departure_time": "Hora de salida programada en zona horaria española (CET/CEST) - solo presente si show_routes=true",
     "timestamp": "Timestamp ISO 8601 en UTC de cuando se ejecutó la función",
-    "eta_directo": "Tiempo estimado de viaje directo (Casa → Colegio) en formato 'XX min'",
-    "eta_con_hospital": "Tiempo estimado de viaje con parada (Casa → Hospital → Colegio) en formato 'XX min'",
-    "eta_directo_seconds": "Duración del viaje directo en formato de Google Maps (Xs)",
-    "eta_con_hospital_seconds": "Duración del viaje con hospital en formato de Google Maps (Xs)",
-    "distance_directo_km": "Distancia de la ruta directa en kilómetros",
-    "distance_hospital_km": "Distancia de la ruta con hospital en kilómetros"
+    "eta_directo": "Tiempo estimado de viaje directo (Casa → Colegio) en formato 'XX min' - solo presente si show_routes=true",
+    "eta_con_hospital": "Tiempo estimado de viaje con parada (Casa → Hospital → Colegio) en formato 'XX min' - solo presente si show_routes=true",
+    "eta_directo_seconds": "Duración del viaje directo en formato de Google Maps (Xs) - solo presente si show_routes=true",
+    "eta_con_hospital_seconds": "Duración del viaje con hospital en formato de Google Maps (Xs) - solo presente si show_routes=true",
+    "distance_directo_km": "Distancia de la ruta directa en kilómetros - solo presente si show_routes=true",
+    "distance_hospital_km": "Distancia de la ruta con hospital en kilómetros - solo presente si show_routes=true"
+  },
+  "execution_schedule": {
+    "frequency": "Cada 15 minutos",
+    "days": "Lunes a Viernes",
+    "hours_utc": "6:00-9:59 y 12:00-15:59",
+    "active_windows_spanish_time": [
+      "7:30-9:00 (mañana)",
+      "13:30-14:45 (tarde)"
+    ],
+    "behavior": "Dentro de ventanas activas: obtiene rutas de Google Maps. Fuera de ventanas: solo actualiza show_routes=false"
   },
   "coordinates": {
     "casa": {

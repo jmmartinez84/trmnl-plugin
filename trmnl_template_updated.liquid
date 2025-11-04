@@ -26,22 +26,25 @@ Y reemplázala con el código de abajo:
 {% endcomment %}
 
     {% comment %} ETAs - Obtener de las variables del webhook (datos reales de Google Maps) {% endcomment %}
-    {% if eta_directo %}
-      {% comment %} Usar datos del webhook si están disponibles {% endcomment %}
+    {% comment %} La variable show_routes controla la visibilidad (true solo entre 7:30-9:00 y 13:30-14:45) {% endcomment %}
+    {% if show_routes and eta_directo %}
+      {% comment %} Usar datos del webhook (datos reales con tráfico) {% endcomment %}
       {% assign eta_directo_display = eta_directo %}
       {% assign eta_con_hospital_display = eta_con_hospital %}
-    {% else %}
-      {% comment %} Valores por defecto si el webhook aún no ha enviado datos {% endcomment %}
+      {% assign mostrar_etas = true %}
+    {% elsif show_routes %}
+      {% comment %} Estamos en ventana de tiempo pero aún no hay datos del webhook {% endcomment %}
       {% if hour_24 >= 7 and hour_24 < 9 %}
         {% assign eta_directo_display = "25 min" %}
         {% assign eta_con_hospital_display = "35 min" %}
-      {% elsif hour_24 >= 13 and hour_24 < 15 %}
+      {% else %}
         {% assign eta_directo_display = "20 min" %}
         {% assign eta_con_hospital_display = "30 min" %}
-      {% else %}
-        {% assign eta_directo_display = "18 min" %}
-        {% assign eta_con_hospital_display = "28 min" %}
       {% endif %}
+      {% assign mostrar_etas = true %}
+    {% else %}
+      {% comment %} Fuera de ventana de tiempo - no mostrar ETAs {% endcomment %}
+      {% assign mostrar_etas = false %}
     {% endif %}
 
 {% comment %}
@@ -51,7 +54,8 @@ y actualiza para usar las variables eta_directo_display y eta_con_hospital_displ
 {% endcomment %}
 
       {% comment %} ETAs - Tiempos estimados {% endcomment %}
-      {% if materias.size > 0 and es_festivo == false %}
+      {% comment %} Solo mostrar si hay materias, no es festivo Y estamos en ventana de tiempo {% endcomment %}
+      {% if materias.size > 0 and es_festivo == false and mostrar_etas %}
       <div class="eta-container indie-flower-regular" style="display:block;">
         {% comment %} ETA 1: Casa → Colegio (directo) {% endcomment %}
         <div class="eta-item">
