@@ -1,0 +1,84 @@
+{% comment %}
+=============================================================
+TEMPLATE ACTUALIZADA PARA USAR DATOS DE AZURE FUNCTION
+- Reemplaza los ETAs hardcodeados por datos en tiempo real de Google Maps
+- Las variables eta_directo y eta_con_hospital vienen del webhook
+=============================================================
+{% endcomment %}
+
+{%comment%}
+IMPORTANTE: En la sección de ETAs (línea ~80-110 de tu template original),
+reemplaza el bloque de código que calcula los ETAs con este código:
+{% endcomment %}
+
+{% comment %}
+==== REEMPLAZAR DESDE AQUÍ ====
+Busca esta sección en tu template original:
+    # ETAs - Tiempos estimados según hora del día
+    # Ajusta estos valores según tu experiencia real
+    if hour_24 >= 7 and hour_24 < 9
+      assign eta_directo = "25 min"
+      assign eta_con_hospital = "35 min"
+    ...
+==== HASTA AQUÍ ====
+
+Y reemplázala con el código de abajo:
+{% endcomment %}
+
+    {% comment %} ETAs - Obtener de las variables del webhook (datos reales de Google Maps) {% endcomment %}
+    {% if eta_directo %}
+      {% comment %} Usar datos del webhook si están disponibles {% endcomment %}
+      {% assign eta_directo_display = eta_directo %}
+      {% assign eta_con_hospital_display = eta_con_hospital %}
+    {% else %}
+      {% comment %} Valores por defecto si el webhook aún no ha enviado datos {% endcomment %}
+      {% if hour_24 >= 7 and hour_24 < 9 %}
+        {% assign eta_directo_display = "25 min" %}
+        {% assign eta_con_hospital_display = "35 min" %}
+      {% elsif hour_24 >= 13 and hour_24 < 15 %}
+        {% assign eta_directo_display = "20 min" %}
+        {% assign eta_con_hospital_display = "30 min" %}
+      {% else %}
+        {% assign eta_directo_display = "18 min" %}
+        {% assign eta_con_hospital_display = "28 min" %}
+      {% endif %}
+    {% endif %}
+
+{% comment %}
+==== SECCIÓN DE DISPLAY DE ETAs ====
+Más abajo en tu template, busca donde se muestran los ETAs (alrededor de la línea 95-115)
+y actualiza para usar las variables eta_directo_display y eta_con_hospital_display:
+{% endcomment %}
+
+      {% comment %} ETAs - Tiempos estimados {% endcomment %}
+      {% if materias.size > 0 and es_festivo == false %}
+      <div class="eta-container indie-flower-regular" style="display:block;">
+        {% comment %} ETA 1: Casa → Colegio (directo) {% endcomment %}
+        <div class="eta-item">
+          <div class="eta-icons">
+            <img class="image eta-icon-small" src="https://staticfilestrml.blob.core.windows.net/icons/ruta/clock-hand-drawn-tool-svgrepo-com.svg" />
+            <img class="image eta-icon-small" src="https://staticfilestrml.blob.core.windows.net/icons/ruta/school-bus-hand-drawn-transport-svgrepo-com.svg" />
+          </div>
+          <div class="eta-tiempo">{{ eta_directo_display }} Colegio</div>
+        </div>
+
+        {% comment %} ETA 2: Casa → Hospital → Colegio {% endcomment %}
+        <div class="eta-item">
+          <div class="eta-icons">
+            <img class="image eta-icon-small" src="https://staticfilestrml.blob.core.windows.net/icons/ruta/clock-hand-drawn-tool-svgrepo-com.svg" />
+            <img class="image eta-icon-small" src="https://staticfilestrml.blob.core.windows.net/icons/ruta/hospital-hand-drawn-transparent.svg" />
+            <img class="image eta-icon-small" src="https://staticfilestrml.blob.core.windows.net/icons/ruta/school-bus-hand-drawn-transport-svgrepo-com.svg" />
+          </div>
+          <div class="eta-tiempo">{{ eta_con_hospital_display }} Hospital - Colegio</div>
+        </div>
+      </div>
+      {% endif %}
+
+{% comment %}
+=============================================================
+NOTA IMPORTANTE:
+1. Cambia display:none; a display:block; en la clase .eta-container del CSS (línea ~22)
+2. Las variables eta_directo y eta_con_hospital vendrán automáticamente del webhook
+3. Si el webhook no ha enviado datos, usará los valores por defecto basados en la hora
+=============================================================
+{% endcomment %}

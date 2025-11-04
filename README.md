@@ -8,10 +8,16 @@ Esta función se ejecuta automáticamente dos veces al día para:
 1. Obtener información de tráfico y rutas de Google Maps entre dos ubicaciones
 2. Enviar los datos automáticamente al webhook de TRMNL
 
-**Ruta configurada:**
-- **Origen**: Casa (42.171842, -8.628590)
-- **Destino**: Colegio (42.210826, -8.692426)
-- **Webhook TRMNL**: `https://usetrmnl.com/api/custom_plugins/3f6873b7-8fb9-43c3-a3c3-3438092d4a87`
+**Rutas configuradas:**
+- **Ruta 1 (Directa)**: Casa → Colegio
+- **Ruta 2 (Con parada)**: Casa → Hospital → Colegio
+
+**Coordenadas:**
+- **Casa**: 42.171842, -8.628590
+- **Colegio**: 42.210826, -8.692426
+- **Hospital**: 42.214366, -8.683297 *(actualizar con coordenadas exactas)*
+
+**Webhook TRMNL**: `https://usetrmnl.com/api/custom_plugins/3f6873b7-8fb9-43c3-a3c3-3438092d4a87`
 
 ## Horarios de Ejecución
 
@@ -158,29 +164,22 @@ func azure functionapp publish MyGoogleMapsFunction
 
 ### Cambiar Ubicaciones
 
-Edita las coordenadas en `function_app.py`:
+Edita las coordenadas en `function_app.py` (líneas 15-18):
 
 ```python
-ROUTE_CONFIG = {
-    "origin": {
-        "location": {
-            "latLng": {
-                "latitude": TU_LATITUD_ORIGEN,
-                "longitude": TU_LONGITUD_ORIGEN
-            }
-        }
-    },
-    "destination": {
-        "location": {
-            "latLng": {
-                "latitude": TU_LATITUD_DESTINO,
-                "longitude": TU_LONGITUD_DESTINO
-            }
-        }
-    },
-    # ...
-}
+# Coordenadas
+COORDS_CASA = {"latitude": TU_LATITUD_CASA, "longitude": TU_LONGITUD_CASA}
+COORDS_COLEGIO = {"latitude": TU_LATITUD_COLEGIO, "longitude": TU_LONGITUD_COLEGIO}
+COORDS_HOSPITAL = {"latitude": TU_LATITUD_HOSPITAL, "longitude": TU_LONGITUD_HOSPITAL}
 ```
+
+**IMPORTANTE**: Las coordenadas del hospital (42.214366, -8.683297) son aproximadas. Actualízalas con las coordenadas exactas del hospital que necesites.
+
+**Cómo obtener coordenadas:**
+1. Ve a Google Maps
+2. Haz clic derecho en la ubicación deseada
+3. Selecciona las coordenadas para copiarlas
+4. El formato será: `latitud, longitud` (ej: 42.214366, -8.683297)
 
 ### Cambiar Horarios
 
@@ -225,40 +224,49 @@ Ver [documentación completa](https://developers.google.com/maps/documentation/r
 
 ## Formato del Payload al Webhook
 
-La función envía un POST request con JSON al webhook de TRMNL con el siguiente formato:
+La función envía un POST request con JSON al webhook de TRMNL usando el formato `merge_variables` requerido por la plataforma:
 
 ```json
 {
-  "departure_time": "2025-11-04 08:05:00 CET",
-  "origin": {
-    "latitude": 42.171842,
-    "longitude": -8.628590
-  },
-  "destination": {
-    "latitude": 42.210826,
-    "longitude": -8.692426
-  },
-  "duration": "1234s",
-  "duration_minutes": 20.6,
-  "distance_meters": 15000,
-  "distance_km": 15.0,
-  "polyline": "encoded_polyline_string...",
-  "legs": [...],
-  "timestamp": "2025-11-04T07:50:00.000Z"
+  "merge_variables": {
+    "departure_time": "2025-11-04 08:05:00 CET",
+    "timestamp": "2025-11-04T07:50:00.123456Z",
+    "eta_directo": "18 min",
+    "eta_con_hospital": "28 min",
+    "eta_directo_seconds": "1080s",
+    "eta_con_hospital_seconds": "1680s",
+    "distance_directo_km": 12.5,
+    "distance_hospital_km": 15.3
+  }
 }
 ```
 
-**Campos incluidos:**
-- `departure_time`: Hora de salida programada en hora española
-- `origin`: Coordenadas del origen
-- `destination`: Coordenadas del destino
-- `duration`: Duración del viaje (formato de Google Maps)
-- `duration_minutes`: Duración convertida a minutos
-- `distance_meters`: Distancia en metros
-- `distance_km`: Distancia en kilómetros
-- `polyline`: Polilínea codificada de la ruta (opcional)
-- `legs`: Información detallada de cada tramo (opcional)
-- `timestamp`: Timestamp UTC de cuando se ejecutó la función
+**Variables disponibles en la template de TRMNL:**
+- `{{ eta_directo }}`: Tiempo estimado Casa → Colegio (formato: "XX min")
+- `{{ eta_con_hospital }}`: Tiempo estimado Casa → Hospital → Colegio (formato: "XX min")
+- `{{ departure_time }}`: Hora de salida programada en hora española
+- `{{ timestamp }}`: Timestamp UTC de cuando se ejecutó la función
+- `{{ distance_directo_km }}`: Distancia de la ruta directa en km
+- `{{ distance_hospital_km }}`: Distancia de la ruta con hospital en km
+- `{{ eta_directo_seconds }}`: Duración en formato Google Maps (ej: "1080s")
+- `{{ eta_con_hospital_seconds }}`: Duración en formato Google Maps (ej: "1680s")
+
+### Cómo usar las variables en tu template TRMNL
+
+```liquid
+{% if materias.size > 0 and es_festivo == false %}
+  <div class="eta-container">
+    <div class="eta-item">
+      <div class="eta-tiempo">{{ eta_directo }}</div>
+      <div class="eta-label">Casa → Colegio</div>
+    </div>
+    <div class="eta-item">
+      <div class="eta-tiempo">{{ eta_con_hospital }}</div>
+      <div class="eta-label">Casa → Hospital → Colegio</div>
+    </div>
+  </div>
+{% endif %}
+```
 
 ## Monitoreo
 

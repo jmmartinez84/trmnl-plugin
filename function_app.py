@@ -11,35 +11,23 @@ app = func.FunctionApp()
 # Configuración
 TRMNL_WEBHOOK_URL = "https://usetrmnl.com/api/custom_plugins/3f6873b7-8fb9-43c3-a3c3-3438092d4a87"
 
-# Configuración de la ruta
-ROUTE_CONFIG = {
-    "origin": {
-        "location": {
-            "latLng": {
-                "latitude": 42.171842,
-                "longitude": -8.628590
-            }
-        }
-    },
-    "destination": {
-        "location": {
-            "latLng": {
-                "latitude": 42.210826,
-                "longitude": -8.692426
-            }
-        }
-    },
-    "travelMode": "DRIVE",
-    "routingPreference": "TRAFFIC_AWARE_OPTIMAL"
-}
+# Coordenadas
+COORDS_CASA = {"latitude": 42.171842, "longitude": -8.628590}
+COORDS_COLEGIO = {"latitude": 42.210826, "longitude": -8.692426}
+# TODO: Actualizar con las coordenadas exactas del hospital
+COORDS_HOSPITAL = {"latitude": 42.214366, "longitude": -8.683297}
 
-def get_google_maps_route(departure_time: datetime, api_key: str) -> dict:
+def get_google_maps_route(origin: dict, destination: dict, departure_time: datetime,
+                          api_key: str, intermediates: list = None) -> dict:
     """
     Obtiene la ruta de Google Maps para un tiempo de salida específico.
 
     Args:
+        origin: Diccionario con latitude y longitude del origen
+        destination: Diccionario con latitude y longitude del destino
         departure_time: Hora de salida deseada
         api_key: Clave de API de Google Maps
+        intermediates: Lista opcional de waypoints intermedios
 
     Returns:
         Respuesta de la API de Google Maps
@@ -50,8 +38,27 @@ def get_google_maps_route(departure_time: datetime, api_key: str) -> dict:
     departure_time_str = departure_time.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # Preparar el payload
-    payload = ROUTE_CONFIG.copy()
-    payload["departureTime"] = departure_time_str
+    payload = {
+        "origin": {
+            "location": {
+                "latLng": origin
+            }
+        },
+        "destination": {
+            "location": {
+                "latLng": destination
+            }
+        },
+        "travelMode": "DRIVE",
+        "routingPreference": "TRAFFIC_AWARE_OPTIMAL",
+        "departureTime": departure_time_str
+    }
+
+    # Agregar waypoints intermedios si existen
+    if intermediates and len(intermediates) > 0:
+        payload["intermediates"] = [
+            {"location": {"latLng": coords}} for coords in intermediates
+        ]
 
     # Headers requeridos por Google Maps API
     headers = {
@@ -91,12 +98,29 @@ def calculate_departure_time() -> datetime:
 
     return departure_time
 
-def send_to_trmnl_webhook(route_data: dict, departure_time: datetime) -> dict:
+def format_duration_as_minutes(duration_str: str) -> str:
     """
-    Envía los datos de la ruta al webhook de TRMNL.
+    Convierte una duración en formato "XXXs" a "XX min".
 
     Args:
-        route_data: Datos de la ruta de Google Maps
+        duration_str: Duración en formato "XXXs" (ej: "1234s")
+
+    Returns:
+        Duración formateada (ej: "21 min")
+    """
+    if isinstance(duration_str, str) and duration_str.endswith('s'):
+        duration_seconds = int(duration_str.rstrip('s'))
+        duration_minutes = round(duration_seconds / 60)
+        return f"{duration_minutes} min"
+    return "N/A"
+
+def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_time: datetime) -> dict:
+    """
+    Envía los datos de las rutas al webhook de TRMNL en formato merge_variables.
+
+    Args:
+        route_directo: Datos de la ruta directa (Casa → Colegio)
+        route_hospital: Datos de la ruta con hospital (Casa → Hospital → Colegio)
         departure_time: Hora de salida
 
     Returns:
@@ -105,43 +129,40 @@ def send_to_trmnl_webhook(route_data: dict, departure_time: datetime) -> dict:
     spanish_tz = tz.gettz('Europe/Madrid')
     departure_time_spanish = departure_time.astimezone(spanish_tz)
 
-    # Extraer información relevante de la ruta
-    payload = {
+    # Inicializar merge_variables
+    merge_vars = {
         "departure_time": departure_time_spanish.strftime("%Y-%m-%d %H:%M:%S %Z"),
-        "origin": {
-            "latitude": ROUTE_CONFIG["origin"]["location"]["latLng"]["latitude"],
-            "longitude": ROUTE_CONFIG["origin"]["location"]["latLng"]["longitude"]
-        },
-        "destination": {
-            "latitude": ROUTE_CONFIG["destination"]["location"]["latLng"]["latitude"],
-            "longitude": ROUTE_CONFIG["destination"]["location"]["latLng"]["longitude"]
-        }
+        "timestamp": datetime.now(tz.UTC).isoformat(),
+        "eta_directo": "N/A",
+        "eta_con_hospital": "N/A"
     }
 
-    # Agregar datos de la ruta si están disponibles
-    if 'routes' in route_data and len(route_data['routes']) > 0:
-        route = route_data['routes'][0]
+    # Extraer duración de ruta directa
+    if route_directo and route_directo.get('success'):
+        data = route_directo.get('data', {})
+        if 'routes' in data and len(data['routes']) > 0:
+            route = data['routes'][0]
+            if 'duration' in route:
+                merge_vars['eta_directo'] = format_duration_as_minutes(route['duration'])
+                merge_vars['eta_directo_seconds'] = route['duration']
+            if 'distanceMeters' in route:
+                merge_vars['distance_directo_km'] = round(route['distanceMeters'] / 1000, 2)
 
-        if 'duration' in route:
-            payload['duration'] = route['duration']
-            # Convertir duración a minutos si está en formato "Xs"
-            if isinstance(route['duration'], str) and route['duration'].endswith('s'):
-                duration_seconds = int(route['duration'].rstrip('s'))
-                payload['duration_minutes'] = round(duration_seconds / 60, 1)
+    # Extraer duración de ruta con hospital
+    if route_hospital and route_hospital.get('success'):
+        data = route_hospital.get('data', {})
+        if 'routes' in data and len(data['routes']) > 0:
+            route = data['routes'][0]
+            if 'duration' in route:
+                merge_vars['eta_con_hospital'] = format_duration_as_minutes(route['duration'])
+                merge_vars['eta_con_hospital_seconds'] = route['duration']
+            if 'distanceMeters' in route:
+                merge_vars['distance_hospital_km'] = round(route['distanceMeters'] / 1000, 2)
 
-        if 'distanceMeters' in route:
-            payload['distance_meters'] = route['distanceMeters']
-            payload['distance_km'] = round(route['distanceMeters'] / 1000, 2)
-
-        if 'polyline' in route and 'encodedPolyline' in route['polyline']:
-            payload['polyline'] = route['polyline']['encodedPolyline']
-
-        # Agregar información de legs si está disponible
-        if 'legs' in route and len(route['legs']) > 0:
-            payload['legs'] = route['legs']
-
-    # Agregar timestamp
-    payload['timestamp'] = datetime.now(tz.UTC).isoformat()
+    # Preparar payload en formato TRMNL
+    payload = {
+        "merge_variables": merge_vars
+    }
 
     try:
         headers = {
@@ -151,6 +172,8 @@ def send_to_trmnl_webhook(route_data: dict, departure_time: datetime) -> dict:
         response.raise_for_status()
 
         logging.info(f'✓ Datos enviados exitosamente al webhook TRMNL')
+        logging.info(f'  - ETA directo: {merge_vars["eta_directo"]}')
+        logging.info(f'  - ETA con hospital: {merge_vars["eta_con_hospital"]}')
         logging.info(f'Status code: {response.status_code}')
 
         return {
@@ -203,40 +226,53 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         logging.error('GOOGLE_MAPS_API_KEY no está configurada. Por favor, configúrela en las variables de entorno.')
         return
 
-    # Obtener la ruta
-    result = get_google_maps_route(departure_time, api_key)
+    # Obtener RUTA 1: Casa → Colegio (directo)
+    logging.info('📍 Obteniendo ruta directa: Casa → Colegio')
+    route_directo = get_google_maps_route(
+        origin=COORDS_CASA,
+        destination=COORDS_COLEGIO,
+        departure_time=departure_time,
+        api_key=api_key
+    )
 
-    if result['success']:
-        logging.info('✓ Ruta obtenida exitosamente de Google Maps')
-        data = result['data']
-
-        # Extraer información útil si está disponible
+    if route_directo['success']:
+        data = route_directo['data']
         if 'routes' in data and len(data['routes']) > 0:
             route = data['routes'][0]
-
             if 'duration' in route:
-                duration = route['duration']
-                logging.info(f'Duración estimada: {duration}')
-
+                logging.info(f'  ✓ Duración estimada (directo): {route["duration"]}')
             if 'distanceMeters' in route:
-                distance_km = route['distanceMeters'] / 1000
-                logging.info(f'Distancia: {distance_km:.2f} km')
-
-            # Log completo de la respuesta para debugging
-            logging.info(f'Respuesta de Google Maps: {json.dumps(data, indent=2)}')
-
-            # Enviar datos al webhook de TRMNL
-            logging.info('Enviando datos al webhook de TRMNL...')
-            webhook_result = send_to_trmnl_webhook(data, departure_time)
-
-            if webhook_result['success']:
-                logging.info(f'✓ Proceso completado exitosamente')
-                logging.info(f'Respuesta del webhook: {webhook_result.get("response", "N/A")}')
-            else:
-                logging.error(f'✗ Error al enviar al webhook: {webhook_result.get("error", "Unknown error")}')
-        else:
-            logging.warning('No se encontraron rutas en la respuesta de Google Maps')
+                logging.info(f'  ✓ Distancia: {route["distanceMeters"] / 1000:.2f} km')
     else:
-        logging.error(f'✗ Error al obtener la ruta de Google Maps: {result["error"]}')
-        if result['status_code']:
-            logging.error(f'Código de estado HTTP: {result["status_code"]}')
+        logging.error(f'  ✗ Error al obtener ruta directa: {route_directo.get("error")}')
+
+    # Obtener RUTA 2: Casa → Hospital → Colegio
+    logging.info('📍 Obteniendo ruta con hospital: Casa → Hospital → Colegio')
+    route_hospital = get_google_maps_route(
+        origin=COORDS_CASA,
+        destination=COORDS_COLEGIO,
+        departure_time=departure_time,
+        api_key=api_key,
+        intermediates=[COORDS_HOSPITAL]
+    )
+
+    if route_hospital['success']:
+        data = route_hospital['data']
+        if 'routes' in data and len(data['routes']) > 0:
+            route = data['routes'][0]
+            if 'duration' in route:
+                logging.info(f'  ✓ Duración estimada (con hospital): {route["duration"]}')
+            if 'distanceMeters' in route:
+                logging.info(f'  ✓ Distancia: {route["distanceMeters"] / 1000:.2f} km')
+    else:
+        logging.error(f'  ✗ Error al obtener ruta con hospital: {route_hospital.get("error")}')
+
+    # Enviar datos al webhook de TRMNL (aunque una ruta falle, enviamos lo que tengamos)
+    logging.info('📤 Enviando datos al webhook de TRMNL...')
+    webhook_result = send_to_trmnl_webhook(route_directo, route_hospital, departure_time)
+
+    if webhook_result['success']:
+        logging.info(f'✓ Proceso completado exitosamente')
+        logging.info(f'Respuesta del webhook: {webhook_result.get("response", "N/A")}')
+    else:
+        logging.error(f'✗ Error al enviar al webhook: {webhook_result.get("error", "Unknown error")}')

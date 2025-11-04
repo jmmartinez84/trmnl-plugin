@@ -1,40 +1,54 @@
 {
   "description": "Ejemplo del payload JSON que se envía al webhook de TRMNL",
-  "note": "Este es un ejemplo de los datos que la función envía automáticamente a TRMNL después de obtener la ruta de Google Maps",
+  "note": "Este es un ejemplo de los datos que la función envía automáticamente a TRMNL después de obtener las rutas de Google Maps. Usa el formato 'merge_variables' requerido por TRMNL.",
   "webhook_url": "https://usetrmnl.com/api/custom_plugins/3f6873b7-8fb9-43c3-a3c3-3438092d4a87",
   "payload_example": {
-    "departure_time": "2025-11-04 08:05:00 CET",
-    "origin": {
-      "latitude": 42.171842,
-      "longitude": -8.628590
-    },
-    "destination": {
-      "latitude": 42.210826,
-      "longitude": -8.692426
-    },
-    "duration": "1234s",
-    "duration_minutes": 20.6,
-    "distance_meters": 15000,
-    "distance_km": 15.0,
-    "polyline": "encoded_polyline_string_from_google_maps...",
-    "legs": [
-      {
-        "duration": "1234s",
-        "distanceMeters": 15000
-      }
-    ],
-    "timestamp": "2025-11-04T07:50:00.123456Z"
+    "merge_variables": {
+      "departure_time": "2025-11-04 08:05:00 CET",
+      "timestamp": "2025-11-04T07:50:00.123456Z",
+      "eta_directo": "18 min",
+      "eta_con_hospital": "28 min",
+      "eta_directo_seconds": "1080s",
+      "eta_con_hospital_seconds": "1680s",
+      "distance_directo_km": 12.5,
+      "distance_hospital_km": 15.3
+    }
+  },
+  "routes_calculated": {
+    "route_1": "Casa → Colegio (directo)",
+    "route_2": "Casa → Hospital → Colegio"
+  },
+  "template_usage": {
+    "note": "La template de TRMNL puede acceder a estas variables directamente",
+    "examples": [
+      "{{ eta_directo }} → muestra '18 min'",
+      "{{ eta_con_hospital }} → muestra '28 min'",
+      "{{ departure_time }} → muestra '2025-11-04 08:05:00 CET'"
+    ]
   },
   "fields_description": {
     "departure_time": "Hora de salida programada en zona horaria española (CET/CEST)",
-    "origin": "Coordenadas de origen (Casa)",
-    "destination": "Coordenadas de destino (Colegio)",
-    "duration": "Duración del viaje en formato de Google Maps (segundos con 's' al final)",
-    "duration_minutes": "Duración del viaje convertida a minutos (número decimal)",
-    "distance_meters": "Distancia total de la ruta en metros",
-    "distance_km": "Distancia total de la ruta en kilómetros",
-    "polyline": "Polilínea codificada de Google Maps para representar la ruta en un mapa",
-    "legs": "Array con información detallada de cada tramo de la ruta",
-    "timestamp": "Timestamp ISO 8601 en UTC de cuando se ejecutó la función"
+    "timestamp": "Timestamp ISO 8601 en UTC de cuando se ejecutó la función",
+    "eta_directo": "Tiempo estimado de viaje directo (Casa → Colegio) en formato 'XX min'",
+    "eta_con_hospital": "Tiempo estimado de viaje con parada (Casa → Hospital → Colegio) en formato 'XX min'",
+    "eta_directo_seconds": "Duración del viaje directo en formato de Google Maps (Xs)",
+    "eta_con_hospital_seconds": "Duración del viaje con hospital en formato de Google Maps (Xs)",
+    "distance_directo_km": "Distancia de la ruta directa en kilómetros",
+    "distance_hospital_km": "Distancia de la ruta con hospital en kilómetros"
+  },
+  "coordinates": {
+    "casa": {
+      "latitude": 42.171842,
+      "longitude": -8.628590
+    },
+    "colegio": {
+      "latitude": 42.210826,
+      "longitude": -8.692426
+    },
+    "hospital": {
+      "latitude": 42.214366,
+      "longitude": -8.683297,
+      "note": "Actualizar con las coordenadas exactas del hospital"
+    }
   }
 }
