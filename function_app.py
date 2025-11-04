@@ -8,6 +8,9 @@ from dateutil import tz
 
 app = func.FunctionApp()
 
+# Configuración
+TRMNL_WEBHOOK_URL = "https://usetrmnl.com/api/custom_plugins/3f6873b7-8fb9-43c3-a3c3-3438092d4a87"
+
 # Configuración de la ruta
 ROUTE_CONFIG = {
     "origin": {
@@ -88,6 +91,81 @@ def calculate_departure_time() -> datetime:
 
     return departure_time
 
+def send_to_trmnl_webhook(route_data: dict, departure_time: datetime) -> dict:
+    """
+    Envía los datos de la ruta al webhook de TRMNL.
+
+    Args:
+        route_data: Datos de la ruta de Google Maps
+        departure_time: Hora de salida
+
+    Returns:
+        Resultado del envío al webhook
+    """
+    spanish_tz = tz.gettz('Europe/Madrid')
+    departure_time_spanish = departure_time.astimezone(spanish_tz)
+
+    # Extraer información relevante de la ruta
+    payload = {
+        "departure_time": departure_time_spanish.strftime("%Y-%m-%d %H:%M:%S %Z"),
+        "origin": {
+            "latitude": ROUTE_CONFIG["origin"]["location"]["latLng"]["latitude"],
+            "longitude": ROUTE_CONFIG["origin"]["location"]["latLng"]["longitude"]
+        },
+        "destination": {
+            "latitude": ROUTE_CONFIG["destination"]["location"]["latLng"]["latitude"],
+            "longitude": ROUTE_CONFIG["destination"]["location"]["latLng"]["longitude"]
+        }
+    }
+
+    # Agregar datos de la ruta si están disponibles
+    if 'routes' in route_data and len(route_data['routes']) > 0:
+        route = route_data['routes'][0]
+
+        if 'duration' in route:
+            payload['duration'] = route['duration']
+            # Convertir duración a minutos si está en formato "Xs"
+            if isinstance(route['duration'], str) and route['duration'].endswith('s'):
+                duration_seconds = int(route['duration'].rstrip('s'))
+                payload['duration_minutes'] = round(duration_seconds / 60, 1)
+
+        if 'distanceMeters' in route:
+            payload['distance_meters'] = route['distanceMeters']
+            payload['distance_km'] = round(route['distanceMeters'] / 1000, 2)
+
+        if 'polyline' in route and 'encodedPolyline' in route['polyline']:
+            payload['polyline'] = route['polyline']['encodedPolyline']
+
+        # Agregar información de legs si está disponible
+        if 'legs' in route and len(route['legs']) > 0:
+            payload['legs'] = route['legs']
+
+    # Agregar timestamp
+    payload['timestamp'] = datetime.now(tz.UTC).isoformat()
+
+    try:
+        headers = {
+            "Content-Type": "application/json"
+        }
+        response = requests.post(TRMNL_WEBHOOK_URL, json=payload, headers=headers, timeout=10)
+        response.raise_for_status()
+
+        logging.info(f'✓ Datos enviados exitosamente al webhook TRMNL')
+        logging.info(f'Status code: {response.status_code}')
+
+        return {
+            "success": True,
+            "status_code": response.status_code,
+            "response": response.text
+        }
+    except requests.exceptions.RequestException as e:
+        logging.error(f'✗ Error al enviar datos al webhook TRMNL: {str(e)}')
+        return {
+            "success": False,
+            "error": str(e),
+            "status_code": getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
+        }
+
 @app.timer_trigger(schedule="0 50 6,12 * * *", arg_name="myTimer", run_on_startup=False,
               use_monitor=False)
 def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
@@ -129,7 +207,7 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
     result = get_google_maps_route(departure_time, api_key)
 
     if result['success']:
-        logging.info('✓ Ruta obtenida exitosamente')
+        logging.info('✓ Ruta obtenida exitosamente de Google Maps')
         data = result['data']
 
         # Extraer información útil si está disponible
@@ -145,10 +223,20 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
                 logging.info(f'Distancia: {distance_km:.2f} km')
 
             # Log completo de la respuesta para debugging
-            logging.info(f'Respuesta completa: {json.dumps(data, indent=2)}')
+            logging.info(f'Respuesta de Google Maps: {json.dumps(data, indent=2)}')
+
+            # Enviar datos al webhook de TRMNL
+            logging.info('Enviando datos al webhook de TRMNL...')
+            webhook_result = send_to_trmnl_webhook(data, departure_time)
+
+            if webhook_result['success']:
+                logging.info(f'✓ Proceso completado exitosamente')
+                logging.info(f'Respuesta del webhook: {webhook_result.get("response", "N/A")}')
+            else:
+                logging.error(f'✗ Error al enviar al webhook: {webhook_result.get("error", "Unknown error")}')
         else:
-            logging.warning('No se encontraron rutas en la respuesta')
+            logging.warning('No se encontraron rutas en la respuesta de Google Maps')
     else:
-        logging.error(f'✗ Error al obtener la ruta: {result["error"]}')
+        logging.error(f'✗ Error al obtener la ruta de Google Maps: {result["error"]}')
         if result['status_code']:
             logging.error(f'Código de estado HTTP: {result["status_code"]}')

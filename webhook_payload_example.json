@@ -1,0 +1,40 @@
+{
+  "description": "Ejemplo del payload JSON que se envía al webhook de TRMNL",
+  "note": "Este es un ejemplo de los datos que la función envía automáticamente a TRMNL después de obtener la ruta de Google Maps",
+  "webhook_url": "https://usetrmnl.com/api/custom_plugins/3f6873b7-8fb9-43c3-a3c3-3438092d4a87",
+  "payload_example": {
+    "departure_time": "2025-11-04 08:05:00 CET",
+    "origin": {
+      "latitude": 42.171842,
+      "longitude": -8.628590
+    },
+    "destination": {
+      "latitude": 42.210826,
+      "longitude": -8.692426
+    },
+    "duration": "1234s",
+    "duration_minutes": 20.6,
+    "distance_meters": 15000,
+    "distance_km": 15.0,
+    "polyline": "encoded_polyline_string_from_google_maps...",
+    "legs": [
+      {
+        "duration": "1234s",
+        "distanceMeters": 15000
+      }
+    ],
+    "timestamp": "2025-11-04T07:50:00.123456Z"
+  },
+  "fields_description": {
+    "departure_time": "Hora de salida programada en zona horaria española (CET/CEST)",
+    "origin": "Coordenadas de origen (Casa)",
+    "destination": "Coordenadas de destino (Colegio)",
+    "duration": "Duración del viaje en formato de Google Maps (segundos con 's' al final)",
+    "duration_minutes": "Duración del viaje convertida a minutos (número decimal)",
+    "distance_meters": "Distancia total de la ruta en metros",
+    "distance_km": "Distancia total de la ruta en kilómetros",
+    "polyline": "Polilínea codificada de Google Maps para representar la ruta en un mapa",
+    "legs": "Array con información detallada de cada tramo de la ruta",
+    "timestamp": "Timestamp ISO 8601 en UTC de cuando se ejecutó la función"
+  }
+}

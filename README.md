@@ -1,12 +1,17 @@
-# Azure Function - Google Maps Route Trigger
+# Azure Function - Google Maps Route Trigger + TRMNL Integration
 
-Función de Azure que obtiene información de rutas de Google Maps dos veces al día usando la API de Google Maps Routes.
+Función de Azure que obtiene información de rutas de Google Maps dos veces al día y envía los datos a TRMNL.
 
 ## Descripción
 
-Esta función se ejecuta automáticamente dos veces al día para obtener información de tráfico y rutas entre dos ubicaciones:
+Esta función se ejecuta automáticamente dos veces al día para:
+1. Obtener información de tráfico y rutas de Google Maps entre dos ubicaciones
+2. Enviar los datos automáticamente al webhook de TRMNL
+
+**Ruta configurada:**
 - **Origen**: Casa (42.171842, -8.628590)
 - **Destino**: Colegio (42.210826, -8.692426)
+- **Webhook TRMNL**: `https://usetrmnl.com/api/custom_plugins/3f6873b7-8fb9-43c3-a3c3-3438092d4a87`
 
 ## Horarios de Ejecución
 
@@ -193,6 +198,14 @@ Para horario de verano (CEST = UTC+2), usa:
 @app.timer_trigger(schedule="0 50 5,11 * * *", ...)
 ```
 
+### Cambiar Webhook de TRMNL
+
+Para usar un webhook diferente, edita la constante en `function_app.py`:
+
+```python
+TRMNL_WEBHOOK_URL = "https://usetrmnl.com/api/custom_plugins/TU_PLUGIN_ID"
+```
+
 ### Obtener Más Información de la Ruta
 
 Puedes solicitar más campos en la respuesta modificando el header `X-Goog-FieldMask` en `function_app.py`:
@@ -209,6 +222,43 @@ Campos disponibles:
 - `routes.travelAdvisory` - Advertencias de tráfico
 
 Ver [documentación completa](https://developers.google.com/maps/documentation/routes/reference/rest/v2/TopLevel/computeRoutes).
+
+## Formato del Payload al Webhook
+
+La función envía un POST request con JSON al webhook de TRMNL con el siguiente formato:
+
+```json
+{
+  "departure_time": "2025-11-04 08:05:00 CET",
+  "origin": {
+    "latitude": 42.171842,
+    "longitude": -8.628590
+  },
+  "destination": {
+    "latitude": 42.210826,
+    "longitude": -8.692426
+  },
+  "duration": "1234s",
+  "duration_minutes": 20.6,
+  "distance_meters": 15000,
+  "distance_km": 15.0,
+  "polyline": "encoded_polyline_string...",
+  "legs": [...],
+  "timestamp": "2025-11-04T07:50:00.000Z"
+}
+```
+
+**Campos incluidos:**
+- `departure_time`: Hora de salida programada en hora española
+- `origin`: Coordenadas del origen
+- `destination`: Coordenadas del destino
+- `duration`: Duración del viaje (formato de Google Maps)
+- `duration_minutes`: Duración convertida a minutos
+- `distance_meters`: Distancia en metros
+- `distance_km`: Distancia en kilómetros
+- `polyline`: Polilínea codificada de la ruta (opcional)
+- `legs`: Información detallada de cada tramo (opcional)
+- `timestamp`: Timestamp UTC de cuando se ejecutó la función
 
 ## Monitoreo
 
