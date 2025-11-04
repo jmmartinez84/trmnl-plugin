@@ -8,14 +8,26 @@ from dateutil import tz
 
 app = func.FunctionApp()
 
-# Configuración
-TRMNL_WEBHOOK_URL = "https://usetrmnl.com/api/custom_plugins/3f6873b7-8fb9-43c3-a3c3-3438092d4a87"
-
-# Coordenadas
-COORDS_CASA = {"latitude": 42.171842, "longitude": -8.628590}
-COORDS_COLEGIO = {"latitude": 42.210826, "longitude": -8.692426}
-# TODO: Actualizar con las coordenadas exactas del hospital
-COORDS_HOSPITAL = {"latitude": 42.214366, "longitude": -8.683297}
+# Configuración desde variables de entorno
+def get_env_config():
+    """Obtiene configuración desde variables de entorno."""
+    return {
+        "webhook_url": os.environ.get('TRMNL_WEBHOOK_URL'),
+        "coords_casa": {
+            "latitude": float(os.environ.get('COORDS_CASA_LAT', '0')),
+            "longitude": float(os.environ.get('COORDS_CASA_LON', '0'))
+        },
+        "coords_colegio": {
+            "latitude": float(os.environ.get('COORDS_COLEGIO_LAT', '0')),
+            "longitude": float(os.environ.get('COORDS_COLEGIO_LON', '0'))
+        },
+        "coords_hospital": {
+            "latitude": float(os.environ.get('COORDS_HOSPITAL_LAT', '0')),
+            "longitude": float(os.environ.get('COORDS_HOSPITAL_LON', '0'))
+        },
+        # Festivos en formato: "2025-10-31,2025-11-03,2025-12-05,2025-12-08"
+        "festivos": os.environ.get('FESTIVOS', '').split(',') if os.environ.get('FESTIVOS') else []
+    }
 
 def get_google_maps_route(origin: dict, destination: dict, departure_time: datetime,
                           api_key: str, intermediates: list = None) -> dict:
@@ -98,17 +110,67 @@ def calculate_departure_time() -> datetime:
 
     return departure_time
 
-def should_show_routes() -> bool:
+def is_holiday(festivos_list: list) -> bool:
     """
-    Determina si las rutas deben mostrarse basándose en la hora española actual.
+    Verifica si el día actual es festivo.
 
-    Las rutas solo se muestran en estos horarios (hora española):
-    - Entre 7:30 AM y 9:00 AM
-    - Entre 1:30 PM (13:30) y 2:45 PM (14:45)
+    Args:
+        festivos_list: Lista de fechas festivas en formato "YYYY-MM-DD"
+
+    Returns:
+        True si hoy es festivo, False en caso contrario
+    """
+    if not festivos_list:
+        return False
+
+    spanish_tz = tz.gettz('Europe/Madrid')
+    today = datetime.now(spanish_tz).date()
+    today_str = today.strftime("%Y-%m-%d")
+
+    # Verificar si hoy está en la lista de festivos
+    for festivo in festivos_list:
+        festivo = festivo.strip()
+        if not festivo:
+            continue
+
+        # Soportar rangos de fechas (ej: "2025-12-22..2026-01-07")
+        if '..' in festivo:
+            try:
+                start_str, end_str = festivo.split('..')
+                start_date = datetime.strptime(start_str.strip(), "%Y-%m-%d").date()
+                end_date = datetime.strptime(end_str.strip(), "%Y-%m-%d").date()
+                if start_date <= today <= end_date:
+                    return True
+            except ValueError as e:
+                logging.warning(f'Formato de rango de festivo inválido: {festivo} - {e}')
+        else:
+            # Fecha única
+            if festivo == today_str:
+                return True
+
+    return False
+
+def should_show_routes(festivos_list: list = None) -> bool:
+    """
+    Determina si las rutas deben mostrarse basándose en la hora española actual y festivos.
+
+    Las rutas solo se muestran si:
+    1. Estamos en uno de estos horarios (hora española):
+       - Entre 7:30 AM y 9:00 AM
+       - Entre 1:30 PM (13:30) y 2:45 PM (14:45)
+    2. NO es un día festivo
+
+    Args:
+        festivos_list: Lista de fechas festivas en formato "YYYY-MM-DD"
 
     Returns:
         True si las rutas deben mostrarse, False en caso contrario
     """
+    # Verificar si es festivo
+    if festivos_list and is_holiday(festivos_list):
+        logging.info('📅 Hoy es festivo - no se mostrarán rutas')
+        return False
+
     spanish_tz = tz.gettz('Europe/Madrid')
     now_spanish = datetime.now(spanish_tz)
 
@@ -147,7 +209,7 @@ def format_duration_as_minutes(duration_str: str) -> str:
         return f"{duration_minutes} min"
     return "N/A"
 
-def send_visibility_only_to_webhook(show_routes: bool) -> dict:
+def send_visibility_only_to_webhook(show_routes: bool, webhook_url: str) -> dict:
     """
     Envía solo el estado de visibilidad al webhook de TRMNL sin datos de rutas.
     Se usa cuando estamos fuera de la ventana de tiempo activa.
@@ -167,7 +229,7 @@ def send_visibility_only_to_webhook(show_routes: bool) -> dict:
 
     try:
         headers = {"Content-Type": "application/json"}
-        response = requests.post(TRMNL_WEBHOOK_URL, json=payload, headers=headers, timeout=10)
+        response = requests.post(webhook_url, json=payload, headers=headers, timeout=10)
         response.raise_for_status()
 
         logging.info(f'✓ Estado de visibilidad enviado al webhook TRMNL')
@@ -186,7 +248,7 @@ def send_visibility_only_to_webhook(show_routes: bool) -> dict:
             "status_code": getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
         }
 
-def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_time: datetime) -> dict:
+def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_time: datetime, webhook_url: str) -> dict:
     """
     Envía los datos de las rutas al webhook de TRMNL en formato merge_variables.
 
@@ -244,7 +306,7 @@ def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_t
         headers = {
             "Content-Type": "application/json"
         }
-        response = requests.post(TRMNL_WEBHOOK_URL, json=payload, headers=headers, timeout=10)
+        response = requests.post(webhook_url, json=payload, headers=headers, timeout=10)
         response.raise_for_status()
 
         logging.info(f'✓ Datos enviados exitosamente al webhook TRMNL')
@@ -291,15 +353,27 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
     logging.info(f'Timer trigger ejecutado a las {current_time_utc.strftime("%Y-%m-%d %H:%M:%S")} UTC')
     logging.info(f'Hora española: {current_time_spanish.strftime("%Y-%m-%d %H:%M:%S %Z")}')
 
-    # Verificar si estamos en la ventana de tiempo para mostrar rutas
-    show_routes = should_show_routes()
+    # Obtener configuración desde variables de entorno
+    config = get_env_config()
+
+    # Validar configuración crítica
+    if not config['webhook_url']:
+        logging.error('TRMNL_WEBHOOK_URL no está configurada. Por favor, configúrela en las variables de entorno.')
+        return
+
+    if config['coords_casa']['latitude'] == 0 or config['coords_colegio']['latitude'] == 0:
+        logging.error('Coordenadas no configuradas correctamente. Revisa COORDS_CASA_LAT, COORDS_CASA_LON, etc.')
+        return
+
+    # Verificar si estamos en la ventana de tiempo para mostrar rutas (incluye check de festivos)
+    show_routes = should_show_routes(config['festivos'])
     logging.info(f'📊 Estado: Mostrar rutas = {show_routes}')
 
     if not show_routes:
-        # Fuera de la ventana de tiempo: solo actualizamos visibilidad, no hacemos llamadas a Google Maps
-        logging.info('⏰ Fuera de la ventana de tiempo activa (7:30-9:00 / 13:30-14:45)')
+        # Fuera de la ventana de tiempo o es festivo: solo actualizamos visibilidad
+        logging.info('⏰ Fuera de la ventana de tiempo activa (7:30-9:00 / 13:30-14:45) o es festivo')
         logging.info('📤 Enviando solo estado de visibilidad al webhook...')
-        webhook_result = send_visibility_only_to_webhook(show_routes=False)
+        webhook_result = send_visibility_only_to_webhook(show_routes=False, webhook_url=config['webhook_url'])
 
         if webhook_result['success']:
             logging.info(f'✓ Estado actualizado exitosamente')
@@ -326,8 +400,8 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
     # Obtener RUTA 1: Casa → Colegio (directo)
     logging.info('📍 Obteniendo ruta directa: Casa → Colegio')
     route_directo = get_google_maps_route(
-        origin=COORDS_CASA,
-        destination=COORDS_COLEGIO,
+        origin=config['coords_casa'],
+        destination=config['coords_colegio'],
         departure_time=departure_time,
         api_key=api_key
     )
@@ -346,11 +420,11 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
     # Obtener RUTA 2: Casa → Hospital → Colegio
     logging.info('📍 Obteniendo ruta con hospital: Casa → Hospital → Colegio')
     route_hospital = get_google_maps_route(
-        origin=COORDS_CASA,
-        destination=COORDS_COLEGIO,
+        origin=config['coords_casa'],
+        destination=config['coords_colegio'],
         departure_time=departure_time,
         api_key=api_key,
-        intermediates=[COORDS_HOSPITAL]
+        intermediates=[config['coords_hospital']]
     )
 
     if route_hospital['success']:
@@ -366,7 +440,7 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
 
     # Enviar datos completos al webhook de TRMNL (aunque una ruta falle, enviamos lo que tengamos)
     logging.info('📤 Enviando datos completos al webhook de TRMNL...')
-    webhook_result = send_to_trmnl_webhook(route_directo, route_hospital, departure_time)
+    webhook_result = send_to_trmnl_webhook(route_directo, route_hospital, departure_time, config['webhook_url'])
 
     if webhook_result['success']:
         logging.info(f'✓ Proceso completado exitosamente')

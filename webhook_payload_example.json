@@ -1,7 +1,7 @@
 {
   "description": "Ejemplo del payload JSON que se envía al webhook de TRMNL",
   "note": "Este es un ejemplo de los datos que la función envía automáticamente a TRMNL después de obtener las rutas de Google Maps. Usa el formato 'merge_variables' requerido por TRMNL.",
-  "webhook_url": "https://usetrmnl.com/api/custom_plugins/3f6873b7-8fb9-43c3-a3c3-3438092d4a87",
+  "webhook_url": "https://usetrmnl.com/api/custom_plugins/your-plugin-uuid-here",
   "payload_example_within_time_window": {
     "note": "Payload enviado entre 7:30-9:00 o 13:30-14:45 (hora española) con datos de Google Maps",
     "merge_variables": {
@@ -57,18 +57,21 @@
     "behavior": "Dentro de ventanas activas: obtiene rutas de Google Maps. Fuera de ventanas: solo actualiza show_routes=false"
   },
   "coordinates": {
+    "note": "Coordenadas de ejemplo (Madrid, España - públicas)",
     "casa": {
-      "latitude": 42.171842,
-      "longitude": -8.628590
+      "latitude": 40.416775,
+      "longitude": -3.703790,
+      "description": "Ejemplo: Puerta del Sol, Madrid"
     },
     "colegio": {
-      "latitude": 42.210826,
-      "longitude": -8.692426
+      "latitude": 40.417638,
+      "longitude": -3.699500,
+      "description": "Ejemplo: Plaza Mayor, Madrid"
     },
     "hospital": {
-      "latitude": 42.214366,
-      "longitude": -8.683297,
-      "note": "Actualizar con las coordenadas exactas del hospital"
+      "latitude": 40.420000,
+      "longitude": -3.701000,
+      "description": "Ejemplo: Coordenadas intermedias en Madrid"
     }
   }
 }

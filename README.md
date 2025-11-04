@@ -12,12 +12,13 @@ Esta función se ejecuta automáticamente dos veces al día para:
 - **Ruta 1 (Directa)**: Casa → Colegio
 - **Ruta 2 (Con parada)**: Casa → Hospital → Colegio
 
-**Coordenadas:**
-- **Casa**: 42.171842, -8.628590
-- **Colegio**: 42.210826, -8.692426
-- **Hospital**: 42.214366, -8.683297 *(actualizar con coordenadas exactas)*
+**Configuración mediante variables de entorno:**
+- Coordenadas (Casa, Colegio, Hospital)
+- URL del webhook de TRMNL
+- Lista de festivos del año escolar
+- API Key de Google Maps
 
-**Webhook TRMNL**: `https://usetrmnl.com/api/custom_plugins/3f6873b7-8fb9-43c3-a3c3-3438092d4a87`
+Ver `.env.example` para ejemplos de configuración.
 
 ## Horarios de Ejecución
 
@@ -43,11 +44,23 @@ La función solo **obtiene datos de Google Maps** durante estas ventanas:
 
 ### Comportamiento Fuera de Ventanas
 
-Fuera de las ventanas activas (7:30-9:00 y 13:30-14:45):
+Fuera de las ventanas activas (7:30-9:00 y 13:30-14:45) **O en días festivos**:
 - La función **NO hace llamadas a Google Maps API**
 - Solo actualiza `show_routes=false` en el webhook
 - Las rutas se ocultan automáticamente en la pantalla TRMNL
 - Ahorra costos de API y reduce tráfico innecesario
+
+### Gestión de Festivos
+
+La función verifica automáticamente si el día actual es festivo antes de mostrar rutas. Los festivos se configuran como variable de entorno:
+
+**Formato**: Lista separada por comas en formato `YYYY-MM-DD`
+**Soporta rangos**: Usa `..` para períodos (ej: `2025-12-22..2026-01-07` para vacaciones)
+
+**Ejemplo**:
+```bash
+FESTIVOS=2025-10-31,2025-11-03,2025-12-05,2025-12-08,2025-12-22..2026-01-07
+```
 
 **Nota**: La función ajusta automáticamente al horario de verano/invierno español usando la zona horaria `Europe/Madrid`.
 
@@ -68,17 +81,27 @@ Fuera de las ventanas activas (7:30-9:00 y 13:30-14:45):
    pip install -r requirements.txt
    ```
 
-3. Copia el archivo `local.settings.json` y actualiza la configuración:
+3. Copia `local.settings.example.json` a `local.settings.json` y configura todas las variables:
    ```json
    {
      "IsEncrypted": false,
      "Values": {
        "AzureWebJobsStorage": "UseDevelopmentStorage=true",
        "FUNCTIONS_WORKER_RUNTIME": "python",
-       "GOOGLE_MAPS_API_KEY": "TU_API_KEY_AQUI"
+       "GOOGLE_MAPS_API_KEY": "tu-api-key-aqui",
+       "TRMNL_WEBHOOK_URL": "https://usetrmnl.com/api/custom_plugins/tu-plugin-uuid",
+       "COORDS_CASA_LAT": "40.416775",
+       "COORDS_CASA_LON": "-3.703790",
+       "COORDS_COLEGIO_LAT": "40.417638",
+       "COORDS_COLEGIO_LON": "-3.699500",
+       "COORDS_HOSPITAL_LAT": "40.420000",
+       "COORDS_HOSPITAL_LON": "-3.701000",
+       "FESTIVOS": "2025-10-31,2025-11-03,2025-12-22..2026-01-07"
      }
    }
    ```
+
+4. Actualiza las coordenadas con tus ubicaciones reales (ver sección "Cómo obtener coordenadas" más abajo)
 
 ### 2. Obtener API Key de Google Maps
 
@@ -90,19 +113,30 @@ Fuera de las ventanas activas (7:30-9:00 y 13:30-14:45):
 
 ### 3. Configuración en Azure
 
-Para desplegar en Azure, configura la variable de entorno en tu Function App:
+Para desplegar en Azure, configura **todas** las variables de entorno en tu Function App:
 
 ```bash
 az functionapp config appsettings set \
   --name <nombre-de-tu-function-app> \
   --resource-group <nombre-de-tu-resource-group> \
-  --settings "GOOGLE_MAPS_API_KEY=TU_API_KEY_AQUI"
+  --settings \
+    "GOOGLE_MAPS_API_KEY=tu-api-key" \
+    "TRMNL_WEBHOOK_URL=https://usetrmnl.com/api/custom_plugins/tu-uuid" \
+    "COORDS_CASA_LAT=40.416775" \
+    "COORDS_CASA_LON=-3.703790" \
+    "COORDS_COLEGIO_LAT=40.417638" \
+    "COORDS_COLEGIO_LON=-3.699500" \
+    "COORDS_HOSPITAL_LAT=40.420000" \
+    "COORDS_HOSPITAL_LON=-3.701000" \
+    "FESTIVOS=2025-10-31,2025-11-03,2025-12-22..2026-01-07"
 ```
 
 O configúrala desde Azure Portal:
 1. Ve a tu Function App
-2. Configuración → Variables de entorno
-3. Agrega `GOOGLE_MAPS_API_KEY` con tu API key
+2. Configuración → Variables de entorno (Environment variables)
+3. Agrega cada variable individualmente
+
+**IMPORTANTE**: Las coordenadas en los ejemplos son de Madrid (públicas). Actualiza con tus ubicaciones reales.
 
 ## Estructura del Proyecto
 
@@ -182,22 +216,42 @@ func azure functionapp publish MyGoogleMapsFunction
 
 ### Cambiar Ubicaciones
 
-Edita las coordenadas en `function_app.py` (líneas 15-18):
+Las ubicaciones se configuran mediante **variables de entorno** (no en el código):
 
-```python
-# Coordenadas
-COORDS_CASA = {"latitude": TU_LATITUD_CASA, "longitude": TU_LONGITUD_CASA}
-COORDS_COLEGIO = {"latitude": TU_LATITUD_COLEGIO, "longitude": TU_LONGITUD_COLEGIO}
-COORDS_HOSPITAL = {"latitude": TU_LATITUD_HOSPITAL, "longitude": TU_LONGITUD_HOSPITAL}
+**En local** (`local.settings.json`):
+```json
+{
+  "Values": {
+    "COORDS_CASA_LAT": "tu-latitud-casa",
+    "COORDS_CASA_LON": "tu-longitud-casa",
+    "COORDS_COLEGIO_LAT": "tu-latitud-colegio",
+    "COORDS_COLEGIO_LON": "tu-longitud-colegio",
+    "COORDS_HOSPITAL_LAT": "tu-latitud-hospital",
+    "COORDS_HOSPITAL_LON": "tu-longitud-hospital"
+  }
+}
 ```
 
-**IMPORTANTE**: Las coordenadas del hospital (42.214366, -8.683297) son aproximadas. Actualízalas con las coordenadas exactas del hospital que necesites.
+**En Azure** (Application Settings):
+```bash
+az functionapp config appsettings set \
+  --name <tu-function-app> \
+  --resource-group <tu-resource-group> \
+  --settings \
+    "COORDS_CASA_LAT=40.416775" \
+    "COORDS_CASA_LON=-3.703790" \
+    "COORDS_COLEGIO_LAT=40.417638" \
+    "COORDS_COLEGIO_LON=-3.699500" \
+    "COORDS_HOSPITAL_LAT=40.420000" \
+    "COORDS_HOSPITAL_LON=-3.701000"
+```
 
 **Cómo obtener coordenadas:**
 1. Ve a Google Maps
 2. Haz clic derecho en la ubicación deseada
 3. Selecciona las coordenadas para copiarlas
-4. El formato será: `latitud, longitud` (ej: 42.214366, -8.683297)
+4. El formato será: `latitud, longitud` (ej: 40.416775, -3.703790)
+5. Usa latitud en `*_LAT` y longitud en `*_LON`
 
 ### Cambiar Horarios
 
@@ -217,10 +271,27 @@ Para horario de verano (CEST = UTC+2), usa:
 
 ### Cambiar Webhook de TRMNL
 
-Para usar un webhook diferente, edita la constante en `function_app.py`:
+El webhook se configura mediante variable de entorno:
 
-```python
-TRMNL_WEBHOOK_URL = "https://usetrmnl.com/api/custom_plugins/TU_PLUGIN_ID"
+```bash
+# En local.settings.json
+"TRMNL_WEBHOOK_URL": "https://usetrmnl.com/api/custom_plugins/tu-plugin-uuid"
+
+# En Azure
+az functionapp config appsettings set \
+  --name <tu-function-app> \
+  --resource-group <tu-resource-group> \
+  --settings "TRMNL_WEBHOOK_URL=https://usetrmnl.com/api/custom_plugins/tu-uuid"
+```
+
+### Actualizar Lista de Festivos
+
+Actualiza la lista al inicio de cada año escolar:
+
+```bash
+# Formato: YYYY-MM-DD separados por comas
+# Soporta rangos con ".."
+FESTIVOS="2025-10-31,2025-11-03,2025-12-05,2025-12-08,2025-12-22..2026-01-07,2026-02-16..2026-02-18"
 ```
 
 ### Obtener Más Información de la Ruta
@@ -361,6 +432,37 @@ Asegúrate de que la variable de entorno esté configurada correctamente en Azur
 - Solo hace llamadas a Google Maps durante ventanas activas (7:30-9:00 y 13:30-14:45)
 - Fuera de esas ventanas, solo actualiza visibilidad (sin costo de Google Maps)
 - Ahorra ~70% de costos vs ejecutar todo el día
+
+## Seguridad
+
+### Datos Sensibles
+
+**IMPORTANTE**: Este repositorio NO contiene datos sensibles en el código. Toda la información privada se gestiona mediante variables de entorno:
+
+- ✅ **Coordenadas**: Configuradas por variables de entorno
+- ✅ **Webhook UUID**: No incluido en el código
+- ✅ **API Keys**: Gestionadas por Azure/local.settings
+- ✅ **Lista de festivos**: Configurable sin exponer información personal
+
+### local.settings.json
+
+El archivo `local.settings.json` está en `.gitignore` y **NUNCA** se debe commitear. Usa `local.settings.example.json` como plantilla.
+
+### Coordenadas de Ejemplo
+
+Todas las coordenadas en la documentación son de **ubicaciones públicas de Madrid**:
+- Puerta del Sol (40.416775, -3.703790)
+- Plaza Mayor (40.417638, -3.699500)
+
+Actualiza con tus ubicaciones reales en las variables de entorno.
+
+### Buenas Prácticas
+
+1. **Nunca** commites `local.settings.json`
+2. **Usa** variables de entorno en Azure para producción
+3. **Rota** las API keys periódicamente
+4. **Restringe** las API keys de Google Maps por dominio/IP si es posible
+5. **Revisa** los logs en Azure para detectar accesos no autorizados
 
 ## Licencia
 

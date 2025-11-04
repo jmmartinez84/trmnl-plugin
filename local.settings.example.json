@@ -3,6 +3,14 @@
   "Values": {
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "FUNCTIONS_WORKER_RUNTIME": "python",
-    "GOOGLE_MAPS_API_KEY": "your-google-maps-api-key-here"
+    "GOOGLE_MAPS_API_KEY": "your-google-maps-api-key-here",
+    "TRMNL_WEBHOOK_URL": "https://usetrmnl.com/api/custom_plugins/your-plugin-uuid-here",
+    "COORDS_CASA_LAT": "40.416775",
+    "COORDS_CASA_LON": "-3.703790",
+    "COORDS_COLEGIO_LAT": "40.417638",
+    "COORDS_COLEGIO_LON": "-3.699500",
+    "COORDS_HOSPITAL_LAT": "40.420000",
+    "COORDS_HOSPITAL_LON": "-3.701000",
+    "FESTIVOS": "2025-10-31,2025-11-03,2025-12-05,2025-12-08,2025-12-22..2026-01-07,2026-02-16..2026-02-18,2026-03-19,2026-03-20,2026-03-30..2026-04-06,2026-05-01"
   }
 }
