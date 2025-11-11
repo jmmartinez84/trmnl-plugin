@@ -250,6 +250,45 @@ def parse_weather_forecast(forecast_data: dict, location_name: str) -> dict:
             "error": str(e)
         }
 
+def map_weather_to_svg_icon(sky_state: str, is_night: bool = False) -> str:
+    """
+    Mapea el estado del cielo de MeteoGalicia a un icono SVG compatible con TRMNL.
+
+    Args:
+        sky_state: Estado del cielo de MeteoGalicia
+        is_night: Si es de noche (para iconos día/noche)
+
+    Returns:
+        URL del icono SVG apropiado
+    """
+    # Mapeo de estados de MeteoGalicia a iconos SVG
+    icon_mapping = {
+        # Estados diurnos
+        "SUNNY": "https://www.svgrepo.com/show/427042/weather-icons-01.svg",  # Sol
+        "PARTLY_CLOUDY": "https://www.svgrepo.com/show/427058/weather-icons-17.svg",  # Parcialmente nuboso día
+        "CLOUDY": "https://www.svgrepo.com/show/427056/weather-icons-16.svg",  # Nuboso
+        "HIGH_CLOUDS": "https://www.svgrepo.com/show/427058/weather-icons-17.svg",  # Nubes altas (similar a parcialmente nuboso)
+        "OVERCAST_AND_SHOWERS": "https://www.svgrepo.com/show/427000/weather-icons-26.svg",  # Lluvia intensa
+        "WEAK_SHOWERS": "https://www.svgrepo.com/show/427010/weather-icons-40.svg",  # Lluvia débil
+        "SHOWERS": "https://www.svgrepo.com/show/427010/weather-icons-40.svg",  # Lluvia
+        "RAIN": "https://www.svgrepo.com/show/427000/weather-icons-26.svg",  # Lluvia continua
+        "STORM_THEN_CLOUDY": "https://www.svgrepo.com/show/427011/weather-icons-41.svg",  # Tormenta
+    }
+
+    # Mapeo de estados nocturnos (cuando difieren del día)
+    night_icon_mapping = {
+        "SUNNY": "https://www.svgrepo.com/show/427047/weather-icons-05.svg",  # Luna
+        "PARTLY_CLOUDY": "https://www.svgrepo.com/show/426994/weather-icons-18.svg",  # Parcialmente nuboso noche
+        "HIGH_CLOUDS": "https://www.svgrepo.com/show/426994/weather-icons-18.svg",  # Nubes altas noche
+    }
+
+    # Si es de noche y hay un icono específico nocturno, usarlo
+    if is_night and sky_state in night_icon_mapping:
+        return night_icon_mapping[sky_state]
+
+    # Retornar el icono mapeado o un icono por defecto
+    return icon_mapping.get(sky_state, "https://www.svgrepo.com/show/427042/weather-icons-01.svg")
+
 def get_current_weather_summary(weather_info: dict) -> dict:
     """
     Obtiene un resumen del tiempo actual y para las próximas horas.
@@ -334,8 +373,16 @@ def get_current_weather_summary(weather_info: dict) -> dict:
     selected_sky = closest_past_sky if closest_past_sky else closest_future_sky
     if selected_sky:
         current_sky = selected_sky.get('value', 'N/A')
-        current_icon = selected_sky.get('icon', '')
-        logging.info(f'  DEBUG: Sky seleccionado - valor: {current_sky}, hora: {selected_sky.get("time", "N/A")}')
+
+        # Determinar si es de noche (entre 20:00 y 08:00)
+        current_hour = now_spanish.hour
+        is_night = current_hour >= 20 or current_hour < 8
+
+        # Obtener icono SVG apropiado para TRMNL
+        current_icon = map_weather_to_svg_icon(current_sky, is_night)
+
+        logging.info(f'  DEBUG: Sky seleccionado - valor: {current_sky}, hora: {selected_sky.get("time", "N/A")}, noche: {is_night}')
+        logging.info(f'  DEBUG: Icono SVG: {current_icon}')
     else:
         logging.warning(f'  DEBUG: No se encontró ningún valor de sky_state válido')
 

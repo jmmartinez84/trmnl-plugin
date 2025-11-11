@@ -65,9 +65,35 @@ Este documento describe todas las variables que se envían al webhook de TRMNL p
   - `"N/A"` - No disponible
 
 ### `weather_casa_icon` (string URL)
-- URL del icono meteorológico de MeteoGalicia
-- Ejemplo: `"https://servizos.meteogalicia.gal/apiv4/images/weather/sky-state/day/nubescraros.png"`
+- URL del icono meteorológico en formato SVG (compatible con TRMNL e-ink)
+- Iconos optimizados para pantallas monocromas de baja resolución
+- Ejemplo: `"https://www.svgrepo.com/show/427058/weather-icons-17.svg"`
+- Los iconos cambian automáticamente entre día/noche
 - Puede estar vacío si no hay datos
+
+**Mapeo de iconos por estado del cielo:**
+
+| Estado del cielo | Día | Noche |
+|-----------------|-----|-------|
+| SUNNY (Despejado) | ☀️ Sol | 🌙 Luna |
+| PARTLY_CLOUDY | ⛅ Parcialmente nuboso día | 🌙☁️ Parcialmente nuboso noche |
+| CLOUDY | ☁️ Nuboso | ☁️ Nuboso |
+| HIGH_CLOUDS | ⛅ Nubes altas | 🌙☁️ Nubes altas noche |
+| WEAK_SHOWERS | 🌦️ Lluvia débil | 🌦️ Lluvia débil |
+| SHOWERS | 🌧️ Lluvia | 🌧️ Lluvia |
+| RAIN | 🌧️ Lluvia continua | 🌧️ Lluvia continua |
+| OVERCAST_AND_SHOWERS | 🌧️ Lluvia intensa | 🌧️ Lluvia intensa |
+| STORM_THEN_CLOUDY | ⛈️ Tormenta | ⛈️ Tormenta |
+
+**URLs de iconos SVG:**
+- Sol: `https://www.svgrepo.com/show/427042/weather-icons-01.svg`
+- Luna: `https://www.svgrepo.com/show/427047/weather-icons-05.svg`
+- Parcialmente nuboso (día): `https://www.svgrepo.com/show/427058/weather-icons-17.svg`
+- Parcialmente nuboso (noche): `https://www.svgrepo.com/show/426994/weather-icons-18.svg`
+- Nuboso: `https://www.svgrepo.com/show/427056/weather-icons-16.svg`
+- Lluvia débil: `https://www.svgrepo.com/show/427010/weather-icons-40.svg`
+- Lluvia intensa: `https://www.svgrepo.com/show/427000/weather-icons-26.svg`
+- Tormenta: `https://www.svgrepo.com/show/427011/weather-icons-41.svg`
 
 ### `weather_casa_rain_3h` (boolean)
 - Indica si habrá lluvia en las próximas 3 horas en casa
@@ -87,8 +113,9 @@ Este documento describe todas las variables que se envían al webhook de TRMNL p
 - Mismos valores posibles que `weather_casa_sky`
 
 ### `weather_colegio_icon` (string URL)
-- URL del icono meteorológico del colegio
-- Mismo formato que `weather_casa_icon`
+- URL del icono meteorológico del colegio en formato SVG
+- Mismo formato y mapeo que `weather_casa_icon`
+- Los iconos son compatibles con TRMNL e-ink y cambian entre día/noche automáticamente
 
 ### `weather_colegio_rain_3h` (boolean)
 - Indica si habrá lluvia en las próximas 3 horas en el colegio

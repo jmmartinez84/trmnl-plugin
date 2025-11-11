@@ -3,11 +3,11 @@
     "show_routes": false,
     "timestamp": "2025-11-11T18:10:34.000000+00:00",
     "weather_casa_sky": "WEAK_SHOWERS",
-    "weather_casa_icon": "https://servizos.meteogalicia.gal/apiv4/images/weather/sky-state/night/chubascosdebiles.png",
+    "weather_casa_icon": "https://www.svgrepo.com/show/427010/weather-icons-40.svg",
     "weather_casa_rain_3h": true,
     "weather_casa_precipitation_today": 1.9,
     "weather_colegio_sky": "PARTLY_CLOUDY",
-    "weather_colegio_icon": "https://servizos.meteogalicia.gal/apiv4/images/weather/sky-state/night/nubescraros.png",
+    "weather_colegio_icon": "https://www.svgrepo.com/show/426994/weather-icons-18.svg",
     "weather_colegio_rain_3h": false,
     "weather_colegio_precipitation_today": 0.5
   }
