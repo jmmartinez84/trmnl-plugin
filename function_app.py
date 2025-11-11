@@ -250,51 +250,77 @@ def parse_weather_forecast(forecast_data: dict, location_name: str) -> dict:
             "error": str(e)
         }
 
-def map_weather_to_svg_icon(sky_state: str, is_night: bool = False) -> str:
+def map_weather_to_svg_icon(sky_state: str, is_night: bool = False, base_url: str = None) -> str:
     """
     Mapea el estado del cielo de MeteoGalicia a un icono SVG compatible con TRMNL.
 
     Args:
         sky_state: Estado del cielo de MeteoGalicia
         is_night: Si es de noche (para iconos día/noche)
+        base_url: URL base del blob storage (ej: "https://tudominio.blob.core.windows.net/iconos")
 
     Returns:
         URL del icono SVG apropiado
     """
-    # Mapeo de estados de MeteoGalicia a iconos SVG
+    # Si no se proporciona base_url, usar svgrepo.com por defecto
+    if not base_url:
+        base_url = "https://www.svgrepo.com/show"
+
+    # Mapeo de estados de MeteoGalicia a nombres de archivo de iconos
     icon_mapping = {
         # Estados diurnos
-        "SUNNY": "https://www.svgrepo.com/show/427042/weather-icons-01.svg",  # Sol
-        "PARTLY_CLOUDY": "https://www.svgrepo.com/show/427058/weather-icons-17.svg",  # Parcialmente nuboso día
-        "CLOUDY": "https://www.svgrepo.com/show/427056/weather-icons-16.svg",  # Nuboso
-        "HIGH_CLOUDS": "https://www.svgrepo.com/show/427058/weather-icons-17.svg",  # Nubes altas (similar a parcialmente nuboso)
-        "OVERCAST_AND_SHOWERS": "https://www.svgrepo.com/show/427000/weather-icons-26.svg",  # Lluvia intensa
-        "WEAK_SHOWERS": "https://www.svgrepo.com/show/427010/weather-icons-40.svg",  # Lluvia débil
-        "SHOWERS": "https://www.svgrepo.com/show/427010/weather-icons-40.svg",  # Lluvia
-        "RAIN": "https://www.svgrepo.com/show/427000/weather-icons-26.svg",  # Lluvia continua
-        "STORM_THEN_CLOUDY": "https://www.svgrepo.com/show/427011/weather-icons-41.svg",  # Tormenta
+        "SUNNY": "weather-icons-01.svg",  # Sol
+        "PARTLY_CLOUDY": "weather-icons-17.svg",  # Parcialmente nuboso día
+        "CLOUDY": "weather-icons-16.svg",  # Nuboso
+        "HIGH_CLOUDS": "weather-icons-17.svg",  # Nubes altas (similar a parcialmente nuboso)
+        "OVERCAST_AND_SHOWERS": "weather-icons-26.svg",  # Lluvia intensa
+        "WEAK_SHOWERS": "weather-icons-40.svg",  # Lluvia débil
+        "SHOWERS": "weather-icons-40.svg",  # Lluvia
+        "RAIN": "weather-icons-26.svg",  # Lluvia continua
+        "STORM_THEN_CLOUDY": "weather-icons-41.svg",  # Tormenta
     }
 
     # Mapeo de estados nocturnos (cuando difieren del día)
     night_icon_mapping = {
-        "SUNNY": "https://www.svgrepo.com/show/427047/weather-icons-05.svg",  # Luna
-        "PARTLY_CLOUDY": "https://www.svgrepo.com/show/426994/weather-icons-18.svg",  # Parcialmente nuboso noche
-        "HIGH_CLOUDS": "https://www.svgrepo.com/show/426994/weather-icons-18.svg",  # Nubes altas noche
+        "SUNNY": "weather-icons-05.svg",  # Luna
+        "PARTLY_CLOUDY": "weather-icons-18.svg",  # Parcialmente nuboso noche
+        "HIGH_CLOUDS": "weather-icons-18.svg",  # Nubes altas noche
     }
 
-    # Si es de noche y hay un icono específico nocturno, usarlo
+    # Determinar qué icono usar
+    icon_filename = None
     if is_night and sky_state in night_icon_mapping:
-        return night_icon_mapping[sky_state]
+        icon_filename = night_icon_mapping[sky_state]
+    else:
+        icon_filename = icon_mapping.get(sky_state, "weather-icons-01.svg")
 
-    # Retornar el icono mapeado o un icono por defecto
-    return icon_mapping.get(sky_state, "https://www.svgrepo.com/show/427042/weather-icons-01.svg")
+    # Construir la URL completa
+    # Si base_url es de svgrepo.com, usar el formato especial
+    if "svgrepo.com" in base_url:
+        # Extraer el número del ID del archivo (ej: weather-icons-01.svg -> 427042)
+        svgrepo_ids = {
+            "weather-icons-01.svg": "427042",
+            "weather-icons-05.svg": "427047",
+            "weather-icons-16.svg": "427056",
+            "weather-icons-17.svg": "427058",
+            "weather-icons-18.svg": "426994",
+            "weather-icons-26.svg": "427000",
+            "weather-icons-40.svg": "427010",
+            "weather-icons-41.svg": "427011",
+        }
+        icon_id = svgrepo_ids.get(icon_filename, "427042")
+        return f"{base_url}/{icon_id}/{icon_filename}"
+    else:
+        # Para blob storage u otros, simplemente concatenar
+        return f"{base_url}/{icon_filename}"
 
-def get_current_weather_summary(weather_info: dict) -> dict:
+def get_current_weather_summary(weather_info: dict, icons_base_url: str = None) -> dict:
     """
     Obtiene un resumen del tiempo actual y para las próximas horas.
 
     Args:
         weather_info: Datos meteorológicos parseados
+        icons_base_url: URL base para los iconos meteorológicos (opcional)
 
     Returns:
         Resumen del tiempo para mostrar en el display
@@ -379,7 +405,7 @@ def get_current_weather_summary(weather_info: dict) -> dict:
         is_night = current_hour >= 20 or current_hour < 8
 
         # Obtener icono SVG apropiado para TRMNL
-        current_icon = map_weather_to_svg_icon(current_sky, is_night)
+        current_icon = map_weather_to_svg_icon(current_sky, is_night, icons_base_url)
 
         logging.info(f'  DEBUG: Sky seleccionado - valor: {current_sky}, hora: {selected_sky.get("time", "N/A")}, noche: {is_night}')
         logging.info(f'  DEBUG: Icono SVG: {current_icon}')
@@ -740,6 +766,13 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
     # Obtener API key de MeteoGalicia
     meteogalicia_api_key = os.environ.get('METEOGALICIA_API_KEY')
 
+    # Obtener URL base para iconos meteorológicos (puede ser blob storage o svgrepo por defecto)
+    weather_icons_base_url = os.environ.get('WEATHER_ICONS_BASE_URL')
+    if weather_icons_base_url:
+        logging.info(f'🎨 Usando iconos meteorológicos desde: {weather_icons_base_url}')
+    else:
+        logging.info('🎨 Usando iconos meteorológicos desde svgrepo.com (por defecto)')
+
     # Obtener predicción meteorológica (siempre, no solo en ventanas de tiempo)
     weather_casa_summary = None
     weather_colegio_summary = None
@@ -758,7 +791,7 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         if forecast_casa['success']:
             weather_info_casa = parse_weather_forecast(forecast_casa, 'casa')
             if weather_info_casa.get('success'):
-                weather_casa_summary = get_current_weather_summary(weather_info_casa)
+                weather_casa_summary = get_current_weather_summary(weather_info_casa, weather_icons_base_url)
                 logging.info(f'  ✓ Tiempo actual: {weather_casa_summary.get("current_sky", "N/A")}')
                 logging.info(f'  ✓ Precipitación hoy: {weather_casa_summary.get("total_precipitation_today", 0)} mm')
             else:
@@ -777,7 +810,7 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         if forecast_colegio['success']:
             weather_info_colegio = parse_weather_forecast(forecast_colegio, 'colegio')
             if weather_info_colegio.get('success'):
-                weather_colegio_summary = get_current_weather_summary(weather_info_colegio)
+                weather_colegio_summary = get_current_weather_summary(weather_info_colegio, weather_icons_base_url)
                 logging.info(f'  ✓ Tiempo actual: {weather_colegio_summary.get("current_sky", "N/A")}')
                 logging.info(f'  ✓ Precipitación hoy: {weather_colegio_summary.get("total_precipitation_today", 0)} mm')
             else:

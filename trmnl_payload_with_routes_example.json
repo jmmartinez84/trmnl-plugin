@@ -10,11 +10,11 @@
     "eta_con_hospital_seconds": "1080s",
     "distance_hospital_km": 12.3,
     "weather_casa_sky": "PARTLY_CLOUDY",
-    "weather_casa_icon": "https://www.svgrepo.com/show/427058/weather-icons-17.svg",
+    "weather_casa_icon": "https://tudominio.blob.core.windows.net/iconos/weather-icons-17.svg",
     "weather_casa_rain_3h": false,
     "weather_casa_precipitation_today": 0.0,
     "weather_colegio_sky": "SUNNY",
-    "weather_colegio_icon": "https://www.svgrepo.com/show/427042/weather-icons-01.svg",
+    "weather_colegio_icon": "https://tudominio.blob.core.windows.net/iconos/weather-icons-01.svg",
     "weather_colegio_rain_3h": false,
     "weather_colegio_precipitation_today": 0.0
   }
