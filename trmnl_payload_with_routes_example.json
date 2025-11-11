@@ -1,0 +1,21 @@
+{
+  "merge_variables": {
+    "departure_time": "2025-11-11 08:15:00 CET",
+    "timestamp": "2025-11-11T07:00:00.000000+00:00",
+    "show_routes": true,
+    "eta_directo": "12 min",
+    "eta_directo_seconds": "720s",
+    "distance_directo_km": 8.5,
+    "eta_con_hospital": "18 min",
+    "eta_con_hospital_seconds": "1080s",
+    "distance_hospital_km": 12.3,
+    "weather_casa_sky": "PARTLY_CLOUDY",
+    "weather_casa_icon": "https://servizos.meteogalicia.gal/apiv4/images/weather/sky-state/day/nubescraros.png",
+    "weather_casa_rain_3h": false,
+    "weather_casa_precipitation_today": 0.0,
+    "weather_colegio_sky": "SUNNY",
+    "weather_colegio_icon": "https://servizos.meteogalicia.gal/apiv4/images/weather/sky-state/day/despexado.png",
+    "weather_colegio_rain_3h": false,
+    "weather_colegio_precipitation_today": 0.0
+  }
+}

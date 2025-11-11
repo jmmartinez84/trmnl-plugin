@@ -516,6 +516,10 @@ def send_visibility_only_to_webhook(show_routes: bool, webhook_url: str,
         "merge_variables": merge_vars
     }
 
+    # Log del payload completo para debugging
+    logging.info('📋 Payload JSON enviado a TRMNL:')
+    logging.info(json.dumps(payload, indent=2, ensure_ascii=False))
+
     try:
         headers = {"Content-Type": "application/json"}
         response = requests.post(webhook_url, json=payload, headers=headers, timeout=10)
@@ -614,6 +618,10 @@ def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_t
     payload = {
         "merge_variables": merge_vars
     }
+
+    # Log del payload completo para debugging
+    logging.info('📋 Payload JSON completo enviado a TRMNL:')
+    logging.info(json.dumps(payload, indent=2, ensure_ascii=False))
 
     try:
         headers = {
