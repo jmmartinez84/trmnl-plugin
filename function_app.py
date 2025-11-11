@@ -110,6 +110,212 @@ def calculate_departure_time() -> datetime:
 
     return departure_time
 
+def get_meteogalicia_forecast(latitude: float, longitude: float, api_key: str) -> dict:
+    """
+    Obtiene la predicción meteorológica de MeteoGalicia para unas coordenadas específicas.
+
+    Args:
+        latitude: Latitud de la ubicación
+        longitude: Longitud de la ubicación
+        api_key: Clave de API de MeteoGalicia
+
+    Returns:
+        Respuesta de la API de MeteoGalicia con predicciones horarias
+    """
+    url = "https://servizos.meteogalicia.gal/apiv4/getNumericForecastInfo"
+
+    params = {
+        "coords": f"{longitude},{latitude}",
+        "variables": "sky_state,precipitation_amount",
+        "lang": "gl",
+        "API_KEY": api_key
+    }
+
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        return {
+            "success": True,
+            "data": response.json(),
+            "status_code": response.status_code
+        }
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error al llamar a MeteoGalicia API: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "status_code": getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
+        }
+
+def parse_weather_forecast(forecast_data: dict, location_name: str) -> dict:
+    """
+    Parsea los datos de MeteoGalicia y extrae información relevante del día actual.
+
+    Args:
+        forecast_data: Respuesta de la API de MeteoGalicia
+        location_name: Nombre de la ubicación (ej: "casa", "colegio")
+
+    Returns:
+        Diccionario con datos meteorológicos procesados
+    """
+    if not forecast_data.get('success'):
+        return {
+            "success": False,
+            "error": forecast_data.get('error', 'Unknown error')
+        }
+
+    try:
+        data = forecast_data['data']
+        features = data.get('features', [])
+
+        if not features or len(features) == 0:
+            return {
+                "success": False,
+                "error": "No forecast data available"
+            }
+
+        # Obtener el primer feature (contiene todos los días de predicción)
+        feature = features[0]
+        properties = feature.get('properties', {})
+        days = properties.get('days', [])
+
+        if not days or len(days) == 0:
+            return {
+                "success": False,
+                "error": "No daily forecast available"
+            }
+
+        spanish_tz = tz.gettz('Europe/Madrid')
+        now_spanish = datetime.now(spanish_tz)
+
+        # Extraer datos de hoy y los próximos días
+        weather_info = {
+            "success": True,
+            "location": location_name,
+            "days": []
+        }
+
+        for day_data in days[:4]:  # Primeros 4 días
+            time_period = day_data.get('timePeriod', {})
+            begin_time_str = time_period.get('begin', {}).get('timeInstant', '')
+
+            # Parsear la fecha del día
+            if begin_time_str:
+                # Formato: "2025-11-11T18:45:56+01"
+                day_date = datetime.fromisoformat(begin_time_str.replace('+01', '+01:00'))
+
+                day_info = {
+                    "date": day_date.strftime("%Y-%m-%d"),
+                    "sky_state": [],
+                    "precipitation": []
+                }
+
+                variables = day_data.get('variables', [])
+
+                for var in variables:
+                    var_name = var.get('name')
+                    values = var.get('values', [])
+
+                    if var_name == 'sky_state':
+                        for val in values:
+                            day_info['sky_state'].append({
+                                "time": val.get('timeInstant', ''),
+                                "value": val.get('value', ''),
+                                "icon": val.get('iconURL', '')
+                            })
+                    elif var_name == 'precipitation_amount':
+                        for val in values:
+                            day_info['precipitation'].append({
+                                "time": val.get('timeInstant', ''),
+                                "value": val.get('value', 0)
+                            })
+
+                weather_info['days'].append(day_info)
+
+        return weather_info
+
+    except Exception as e:
+        logging.error(f"Error al parsear datos de MeteoGalicia: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+def get_current_weather_summary(weather_info: dict) -> dict:
+    """
+    Obtiene un resumen del tiempo actual y para las próximas horas.
+
+    Args:
+        weather_info: Datos meteorológicos parseados
+
+    Returns:
+        Resumen del tiempo para mostrar en el display
+    """
+    if not weather_info.get('success'):
+        return {
+            "current_sky": "N/A",
+            "current_icon": "",
+            "next_hours_rain": False,
+            "total_precipitation_today": 0
+        }
+
+    spanish_tz = tz.gettz('Europe/Madrid')
+    now_spanish = datetime.now(spanish_tz)
+
+    today_date = now_spanish.strftime("%Y-%m-%d")
+
+    # Buscar el día de hoy
+    today_data = None
+    for day in weather_info.get('days', []):
+        if day['date'] == today_date:
+            today_data = day
+            break
+
+    if not today_data:
+        return {
+            "current_sky": "N/A",
+            "current_icon": "",
+            "next_hours_rain": False,
+            "total_precipitation_today": 0
+        }
+
+    # Encontrar el estado del cielo más cercano a la hora actual
+    current_sky = "N/A"
+    current_icon = ""
+    sky_states = today_data.get('sky_state', [])
+
+    for sky in sky_states:
+        time_str = sky.get('time', '')
+        if time_str:
+            sky_time = datetime.fromisoformat(time_str.replace('+01', '+01:00'))
+            if sky_time <= now_spanish:
+                current_sky = sky.get('value', 'N/A')
+                current_icon = sky.get('icon', '')
+
+    # Verificar si habrá lluvia en las próximas 3 horas
+    next_hours_rain = False
+    three_hours_later = now_spanish + timedelta(hours=3)
+
+    precipitation_data = today_data.get('precipitation', [])
+    for precip in precipitation_data:
+        time_str = precip.get('time', '')
+        if time_str:
+            precip_time = datetime.fromisoformat(time_str.replace('+01', '+01:00'))
+            if now_spanish <= precip_time <= three_hours_later:
+                if precip.get('value', 0) > 0:
+                    next_hours_rain = True
+                    break
+
+    # Calcular precipitación total del día
+    total_precipitation_today = sum(p.get('value', 0) for p in precipitation_data)
+
+    return {
+        "current_sky": current_sky,
+        "current_icon": current_icon,
+        "next_hours_rain": next_hours_rain,
+        "total_precipitation_today": round(total_precipitation_today, 1)
+    }
+
 def is_holiday(festivos_list: list) -> bool:
     """
     Verifica si el día actual es festivo.
@@ -209,22 +415,44 @@ def format_duration_as_minutes(duration_str: str) -> str:
         return f"{duration_minutes} min"
     return "N/A"
 
-def send_visibility_only_to_webhook(show_routes: bool, webhook_url: str) -> dict:
+def send_visibility_only_to_webhook(show_routes: bool, webhook_url: str,
+                                   weather_casa: dict = None, weather_colegio: dict = None) -> dict:
     """
     Envía solo el estado de visibilidad al webhook de TRMNL sin datos de rutas.
     Se usa cuando estamos fuera de la ventana de tiempo activa.
 
     Args:
         show_routes: Si las rutas deben mostrarse o no
+        weather_casa: Datos meteorológicos de casa (opcional)
+        weather_colegio: Datos meteorológicos del colegio (opcional)
 
     Returns:
         Resultado del envío al webhook
     """
+    merge_vars = {
+        "show_routes": show_routes,
+        "timestamp": datetime.now(tz.UTC).isoformat()
+    }
+
+    # Añadir datos meteorológicos si están disponibles
+    if weather_casa:
+        merge_vars.update({
+            "weather_casa_sky": weather_casa.get('current_sky', 'N/A'),
+            "weather_casa_icon": weather_casa.get('current_icon', ''),
+            "weather_casa_rain_3h": weather_casa.get('next_hours_rain', False),
+            "weather_casa_precipitation_today": weather_casa.get('total_precipitation_today', 0)
+        })
+
+    if weather_colegio:
+        merge_vars.update({
+            "weather_colegio_sky": weather_colegio.get('current_sky', 'N/A'),
+            "weather_colegio_icon": weather_colegio.get('current_icon', ''),
+            "weather_colegio_rain_3h": weather_colegio.get('next_hours_rain', False),
+            "weather_colegio_precipitation_today": weather_colegio.get('total_precipitation_today', 0)
+        })
+
     payload = {
-        "merge_variables": {
-            "show_routes": show_routes,
-            "timestamp": datetime.now(tz.UTC).isoformat()
-        }
+        "merge_variables": merge_vars
     }
 
     try:
@@ -234,6 +462,10 @@ def send_visibility_only_to_webhook(show_routes: bool, webhook_url: str) -> dict
 
         logging.info(f'✓ Estado de visibilidad enviado al webhook TRMNL')
         logging.info(f'  - Mostrar rutas: {show_routes}')
+        if weather_casa:
+            logging.info(f'  - Tiempo casa: {weather_casa.get("current_sky", "N/A")}')
+        if weather_colegio:
+            logging.info(f'  - Tiempo colegio: {weather_colegio.get("current_sky", "N/A")}')
 
         return {
             "success": True,
@@ -248,7 +480,8 @@ def send_visibility_only_to_webhook(show_routes: bool, webhook_url: str) -> dict
             "status_code": getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
         }
 
-def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_time: datetime, webhook_url: str) -> dict:
+def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_time: datetime,
+                          webhook_url: str, weather_casa: dict = None, weather_colegio: dict = None) -> dict:
     """
     Envía los datos de las rutas al webhook de TRMNL en formato merge_variables.
 
@@ -256,6 +489,8 @@ def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_t
         route_directo: Datos de la ruta directa (Casa → Colegio)
         route_hospital: Datos de la ruta con hospital (Casa → Hospital → Colegio)
         departure_time: Hora de salida
+        weather_casa: Datos meteorológicos de casa (opcional)
+        weather_colegio: Datos meteorológicos del colegio (opcional)
 
     Returns:
         Resultado del envío al webhook
@@ -297,6 +532,23 @@ def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_t
             if 'distanceMeters' in route:
                 merge_vars['distance_hospital_km'] = round(route['distanceMeters'] / 1000, 2)
 
+    # Añadir datos meteorológicos si están disponibles
+    if weather_casa:
+        merge_vars.update({
+            "weather_casa_sky": weather_casa.get('current_sky', 'N/A'),
+            "weather_casa_icon": weather_casa.get('current_icon', ''),
+            "weather_casa_rain_3h": weather_casa.get('next_hours_rain', False),
+            "weather_casa_precipitation_today": weather_casa.get('total_precipitation_today', 0)
+        })
+
+    if weather_colegio:
+        merge_vars.update({
+            "weather_colegio_sky": weather_colegio.get('current_sky', 'N/A'),
+            "weather_colegio_icon": weather_colegio.get('current_icon', ''),
+            "weather_colegio_rain_3h": weather_colegio.get('next_hours_rain', False),
+            "weather_colegio_precipitation_today": weather_colegio.get('total_precipitation_today', 0)
+        })
+
     # Preparar payload en formato TRMNL
     payload = {
         "merge_variables": merge_vars
@@ -313,6 +565,10 @@ def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_t
         logging.info(f'  - Mostrar rutas: {merge_vars["show_routes"]}')
         logging.info(f'  - ETA directo: {merge_vars["eta_directo"]}')
         logging.info(f'  - ETA con hospital: {merge_vars["eta_con_hospital"]}')
+        if weather_casa:
+            logging.info(f'  - Tiempo casa: {weather_casa.get("current_sky", "N/A")}')
+        if weather_colegio:
+            logging.info(f'  - Tiempo colegio: {weather_colegio.get("current_sky", "N/A")}')
         logging.info(f'Status code: {response.status_code}')
 
         return {
@@ -365,6 +621,56 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         logging.error('Coordenadas no configuradas correctamente. Revisa COORDS_CASA_LAT, COORDS_CASA_LON, etc.')
         return
 
+    # Obtener API key de MeteoGalicia
+    meteogalicia_api_key = os.environ.get('METEOGALICIA_API_KEY')
+
+    # Obtener predicción meteorológica (siempre, no solo en ventanas de tiempo)
+    weather_casa_summary = None
+    weather_colegio_summary = None
+
+    if meteogalicia_api_key and meteogalicia_api_key != 'your-meteogalicia-api-key-here':
+        logging.info('🌤️ Obteniendo predicción meteorológica de MeteoGalicia...')
+
+        # Obtener predicción para casa
+        logging.info('📍 Predicción para Casa')
+        forecast_casa = get_meteogalicia_forecast(
+            latitude=config['coords_casa']['latitude'],
+            longitude=config['coords_casa']['longitude'],
+            api_key=meteogalicia_api_key
+        )
+
+        if forecast_casa['success']:
+            weather_info_casa = parse_weather_forecast(forecast_casa, 'casa')
+            if weather_info_casa.get('success'):
+                weather_casa_summary = get_current_weather_summary(weather_info_casa)
+                logging.info(f'  ✓ Tiempo actual: {weather_casa_summary.get("current_sky", "N/A")}')
+                logging.info(f'  ✓ Precipitación hoy: {weather_casa_summary.get("total_precipitation_today", 0)} mm')
+            else:
+                logging.error(f'  ✗ Error al parsear datos: {weather_info_casa.get("error")}')
+        else:
+            logging.error(f'  ✗ Error al obtener predicción: {forecast_casa.get("error")}')
+
+        # Obtener predicción para colegio
+        logging.info('📍 Predicción para Colegio')
+        forecast_colegio = get_meteogalicia_forecast(
+            latitude=config['coords_colegio']['latitude'],
+            longitude=config['coords_colegio']['longitude'],
+            api_key=meteogalicia_api_key
+        )
+
+        if forecast_colegio['success']:
+            weather_info_colegio = parse_weather_forecast(forecast_colegio, 'colegio')
+            if weather_info_colegio.get('success'):
+                weather_colegio_summary = get_current_weather_summary(weather_info_colegio)
+                logging.info(f'  ✓ Tiempo actual: {weather_colegio_summary.get("current_sky", "N/A")}')
+                logging.info(f'  ✓ Precipitación hoy: {weather_colegio_summary.get("total_precipitation_today", 0)} mm')
+            else:
+                logging.error(f'  ✗ Error al parsear datos: {weather_info_colegio.get("error")}')
+        else:
+            logging.error(f'  ✗ Error al obtener predicción: {forecast_colegio.get("error")}')
+    else:
+        logging.warning('METEOGALICIA_API_KEY no está configurada. No se obtendrá información meteorológica.')
+
     # Verificar si estamos en la ventana de tiempo para mostrar rutas (incluye check de festivos)
     show_routes = should_show_routes(config['festivos'])
     logging.info(f'📊 Estado: Mostrar rutas = {show_routes}')
@@ -373,7 +679,12 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         # Fuera de la ventana de tiempo o es festivo: solo actualizamos visibilidad
         logging.info('⏰ Fuera de la ventana de tiempo activa (7:30-9:00 / 13:30-14:45) o es festivo')
         logging.info('📤 Enviando solo estado de visibilidad al webhook...')
-        webhook_result = send_visibility_only_to_webhook(show_routes=False, webhook_url=config['webhook_url'])
+        webhook_result = send_visibility_only_to_webhook(
+            show_routes=False,
+            webhook_url=config['webhook_url'],
+            weather_casa=weather_casa_summary,
+            weather_colegio=weather_colegio_summary
+        )
 
         if webhook_result['success']:
             logging.info(f'✓ Estado actualizado exitosamente')
@@ -440,7 +751,14 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
 
     # Enviar datos completos al webhook de TRMNL (aunque una ruta falle, enviamos lo que tengamos)
     logging.info('📤 Enviando datos completos al webhook de TRMNL...')
-    webhook_result = send_to_trmnl_webhook(route_directo, route_hospital, departure_time, config['webhook_url'])
+    webhook_result = send_to_trmnl_webhook(
+        route_directo,
+        route_hospital,
+        departure_time,
+        config['webhook_url'],
+        weather_casa=weather_casa_summary,
+        weather_colegio=weather_colegio_summary
+    )
 
     if webhook_result['success']:
         logging.info(f'✓ Proceso completado exitosamente')
