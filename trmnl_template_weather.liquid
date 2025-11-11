@@ -1,0 +1,373 @@
+{% comment %}
+=============================================================
+PLUGIN: HORARIO DIARIO v3.8
+- Muestra hoy, pero a partir de las 15:00 muestra mañana
+- Lista de festivos editable (curso 2025-2026)
+- En festivo: "Hoy/(Mañana) no hay clase, es <motivo>"
+- Nombres cortos, con duplicados; sin emojis (pantalla e-ink)
+- Cumpleaños dinámicos con cálculo automático de edad
+- ETAs en columna derecha (casa→colegio y casa→hospital→colegio)
+- Información meteorológica de MeteoGalicia para casa y colegio
+=============================================================
+{% endcomment %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Indie+Flower&display=swap" rel="stylesheet">
+<style>
+  .indie-flower-regular { font-family: "Indie Flower", cursive; font-weight: 600; font-style: normal; }
+  .clases{ list-style-type: none; padding-left:0; margin:0; }
+  .fecha{ font-weight:400; font-size:36px;}
+  .icon { width: 48px; padding-right:10px; }
+  .asignatura{ font-size:32px; vertical-align: top; }
+  .sin-clase { font-size:28px; margin-top:8px }
+  .festivo { width: 256px; padding-left:35px; margin-top:20px;}
+
+  /* Estilos para Weather */
+  .weather-container {
+    margin-bottom: 24px;
+  }
+  .weather-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .weather-icon {
+    width: 42px;
+    height: 42px;
+    margin-right: 12px;
+  }
+  .weather-text {
+    font-size: 26px;
+    line-height: 1.2;
+  }
+  .weather-label {
+    font-weight: 600;
+    margin-right: 6px;
+  }
+  .rain-warning {
+    color: #2c3e50;
+    font-size: 24px;
+    margin-left: 8px;
+  }
+
+  /* Estilos para ETAs */
+  .eta-container { margin-top: 0px;}
+  .eta-item {
+    margin-bottom: 24px;
+    padding: 0px;
+    border-radius: 8px;
+  }
+  .eta-icons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .eta-icon-small {
+    width: 36px;
+    height: 36px;
+    margin-right: 12px;
+  }
+  .eta-tiempo {
+    font-size: 28px;
+    font-weight: 600;
+    color: #2c3e50;
+  }
+  .eta-label {
+    font-size:28px;
+    vertical-align: top;
+    margin-right:20px
+  }
+
+  /* Estilos para cumpleaños */
+  .cumpleanos-container {
+    margin-bottom: 24px;
+  }
+</style>
+
+<div class="layout layout--top-left flex flex--col gap--large">
+  {% liquid
+    assign festivos_str = "2025-10-31|Halloween|https://staticfilestrml.blob.core.windows.net/icons/festivos/halloween.svg;2025-11-03|Día do Ensino|https://staticfilestrml.blob.core.windows.net/icons/festivos/ensino.svg;2025-12-05|Constitución|https://staticfilestrml.blob.core.windows.net/icons/festivos/constitucion.svg;2025-12-08|Inmaculada Concepción|https://staticfilestrml.blob.core.windows.net/icons/festivos/virgen.png;2025-12-22..2026-01-07|Navidad|https://staticfilestrml.blob.core.windows.net/icons/festivos/christmas-tree.svg;2026-02-16..2026-02-18|Entroido|https://staticfilestrml.blob.core.windows.net/icons/festivos/entroido.png;2026-03-19|Día del Padre|https://staticfilestrml.blob.core.windows.net/icons/festivos/house-with-heart.svg;2026-03-20|Libre|https://staticfilestrml.blob.core.windows.net/icons/festivos/house-with-heart.svg;2026-03-30..2026-04-06|Semana Santa|https://staticfilestrml.blob.core.windows.net/icons/festivos/house-with-heart.svg;2026-05-01|Día del Trabajo|https://staticfilestrml.blob.core.windows.net/icons/festivos/house-with-heart.svg"
+
+    # Lista de cumpleaños: formato "YYYY-MM-DD|Nombre;YYYY-MM-DD|Nombre;..."
+    assign cumpleanos_str = "1950-11-14|Abuela Ana;2017-11-22|Gabriel;1979-11-29|Juan Luis;1979-12-11|Tía Paula;1985-12-19|Dieguito;2022-12-21|Macarena;2024-12-23|Xoaniña;2017-12-28|Manuela/Pol;2015-01-01|Iria;2017-01-02|Pedro;2017-01-03|Paula;2022-01-15|Matías;2017-01-15|Carolina Paramés|2006-01-18;Iñigo;1981-01-21|Inés;2017-01-23|Noa;2022-02-07|Candela;2017-02-21|David;2022-02-03|Maggie;2022-03-12|Inés;2017-03-14|Marina;2022-04-02|Enzo"
+
+    assign dias_es = "Domingo,Lunes,Martes,Miércoles,Jueves,Viernes,Sábado" | split: ','
+    assign meses_es = "Enero,Febrero,Marzo,Abril,Mayo,Junio,Julio,Agosto,Septiembre,Octubre,Noviembre,Diciembre" | split: ','
+
+    # ¿Mostramos hoy o mañana?
+    assign hour_24 = "now" | date: "%H" | plus: 0
+    assign ts = "now" | date: "%s" | plus: 0
+    assign mostrando_manana = false
+    if hour_24 >= 15
+      assign ts = ts | plus: 86400
+      assign mostrando_manana = true
+    endif
+
+    # Índices y fecha legible
+    assign day_index = ts | date: "%w" | plus: 0
+    assign month_index = ts | date: "%m" | minus: 1
+    assign dia_actual_string = dias_es[day_index]
+    assign mes_actual_string = meses_es[month_index]
+    assign dia_numero = ts | date: "%e" | strip
+    assign anio = ts | date: "%Y"
+
+    # Epoch del día (00:00) para comparar con festivos
+    assign ymd = ts | date: "%Y-%m-%d"
+    assign ts_dia = ymd | date: "%s" | plus: 0
+
+    # ¿Es festivo?
+    assign es_festivo = false
+    assign motivo_festivo = ""
+    assign icon_festivo = ""
+    assign lista = festivos_str | split: ';'
+    for item in lista
+      if item != ""
+        assign parts = item | split: '|'
+        assign fecha = parts[0] | strip
+        assign motivo = parts[1] | strip
+        assign icono = parts[2] | strip
+        if fecha contains ".."
+          assign rango = fecha | split: ".."
+          assign ini = rango[0] | date: "%s" | plus: 0
+          assign fin = rango[1] | date: "%s" | plus: 0
+          if ts_dia >= ini and ts_dia <= fin
+            assign es_festivo = true
+            assign motivo_festivo = motivo
+            assign icon_festivo = icono
+          endif
+        else
+          assign unico = fecha | date: "%s" | plus: 0
+          if ts_dia == unico
+            assign es_festivo = true
+            assign motivo_festivo = motivo
+            assign icon_festivo = icono
+          endif
+        endif
+      endif
+    endfor
+
+    # Procesar cumpleaños
+    assign hay_cumpleanos = false
+    assign nombre_cumpleanos = ""
+    assign edad_cumpleanos = 0
+    assign lista_cumples = cumpleanos_str | split: ';'
+
+    # Obtener mes y día del timestamp que estamos mostrando
+    assign mes_mostrado = ts | date: "%m"
+    assign dia_mostrado = ts | date: "%d"
+    assign anio_mostrado = ts | date: "%Y" | plus: 0
+
+    for item in lista_cumples
+      if item != ""
+        assign parts = item | split: '|'
+        assign fecha_nacimiento = parts[0] | strip
+        assign nombre = parts[1] | strip
+
+        # Extraer mes y día de la fecha de nacimiento
+        assign mes_nac = fecha_nacimiento | slice: 5, 2
+        assign dia_nac = fecha_nacimiento | slice: 8, 2
+        assign anio_nac = fecha_nacimiento | slice: 0, 4 | plus: 0
+
+        # Comparar solo mes y día (ignorando el año)
+        if mes_mostrado == mes_nac and dia_mostrado == dia_nac
+          assign hay_cumpleanos = true
+          assign nombre_cumpleanos = nombre
+          # Calcular edad: año actual - año nacimiento
+          assign edad_cumpleanos = anio_mostrado | minus: anio_nac
+        endif
+      endif
+    endfor
+
+    # Traducir estados del cielo a español
+    assign weather_casa_text = "N/A"
+    case weather_casa_sky
+      when "SUNNY"
+        assign weather_casa_text = "Despejado"
+      when "PARTLY_CLOUDY"
+        assign weather_casa_text = "Nubes"
+      when "CLOUDY"
+        assign weather_casa_text = "Nuboso"
+      when "HIGH_CLOUDS"
+        assign weather_casa_text = "Nubes altas"
+      when "OVERCAST_AND_SHOWERS"
+        assign weather_casa_text = "Chubascos"
+      when "WEAK_SHOWERS"
+        assign weather_casa_text = "Lluvia débil"
+      when "SHOWERS"
+        assign weather_casa_text = "Lluvia"
+      when "RAIN"
+        assign weather_casa_text = "Lluvia"
+      when "STORM_THEN_CLOUDY"
+        assign weather_casa_text = "Tormenta"
+    endcase
+
+    assign weather_colegio_text = "N/A"
+    case weather_colegio_sky
+      when "SUNNY"
+        assign weather_colegio_text = "Despejado"
+      when "PARTLY_CLOUDY"
+        assign weather_colegio_text = "Nubes"
+      when "CLOUDY"
+        assign weather_colegio_text = "Nuboso"
+      when "HIGH_CLOUDS"
+        assign weather_colegio_text = "Nubes altas"
+      when "OVERCAST_AND_SHOWERS"
+        assign weather_colegio_text = "Chubascos"
+      when "WEAK_SHOWERS"
+        assign weather_colegio_text = "Lluvia débil"
+      when "SHOWERS"
+        assign weather_colegio_text = "Lluvia"
+      when "RAIN"
+        assign weather_colegio_text = "Lluvia"
+      when "STORM_THEN_CLOUDY"
+        assign weather_colegio_text = "Tormenta"
+    endcase
+  %}
+
+  {% comment %} ETAs - Obtener de las variables del webhook (datos reales de Google Maps) {% endcomment %}
+  {% comment %} La variable show_routes controla la visibilidad (true solo entre 7:30-9:00 y 13:30-14:45) {% endcomment %}
+  {% if show_routes and eta_directo %}
+    {% comment %} Usar datos del webhook (datos reales con tráfico) {% endcomment %}
+    {% assign eta_directo_display = eta_directo %}
+    {% assign eta_con_hospital_display = eta_con_hospital %}
+    {% assign mostrar_etas = true %}
+  {% elsif show_routes %}
+    {% comment %} Estamos en ventana de tiempo pero aún no hay datos del webhook {% endcomment %}
+    {% if hour_24 >= 7 and hour_24 < 9 %}
+      {% assign eta_directo_display = "10 min" %}
+      {% assign eta_con_hospital_display = "15 min" %}
+    {% else %}
+      {% assign eta_directo_display = "20 min" %}
+      {% assign eta_con_hospital_display = "30 min" %}
+    {% endif %}
+    {% assign mostrar_etas = true %}
+  {% else %}
+    {% comment %} Fuera de ventana de tiempo - no mostrar ETAs {% endcomment %}
+    {% assign mostrar_etas = false %}
+  {% endif %}
+
+  <div class="grid">
+    <div class="col--span-4 value">
+      <span class="indie-flower-regular fecha">
+        {{ dia_actual_string }}, {{ dia_numero }} de {{ mes_actual_string }} de {{ anio }}{% if mostrando_manana %}{% endif %}
+      </span>
+    </div>
+  </div>
+
+  {% comment %} Materias por día (nombres cortos, duplicadas permitidas) {% endcomment %}
+  {% case dia_actual_string %}
+    {% when "Lunes" %}
+      {% assign materias = "English;Matemáticas;Lengua;Ed. Física;C. Naturais;C. Sociales" | split: ";" %}
+    {% when "Martes" %}
+      {% assign materias = "Lengua;C. Naturais;Matemáticas;English;Galego;Proxecto" | split: ";" %}
+    {% when "Miércoles" %}
+      {% assign materias = "Galego;Lengua;Matemáticas;Plástica;Música;English" | split: ";" %}
+    {% when "Jueves" %}
+      {% assign materias = "Lengua;Galego;Matemáticas;Matemáticas;Ed. Física;English" | split: ";" %}
+    {% when "Viernes" %}
+      {% assign materias = "Matemáticas;Galego;English;C. Naturais;C. Sociales;Lengua" | split: ";" %}
+    {% else %}
+      {% assign materias = "" | split: ";" %}
+  {% endcase %}
+
+  <div class="columns">
+    <div class="column">
+      <ul class="clases">
+        {% if es_festivo %}
+          {% if mostrando_manana %}
+            <li class="sin-clase indie-flower-regular">Mañana no hay clase, es {{ motivo_festivo | downcase }}.</li>
+            <li><img class="image festivo" src="{{ icon_festivo }}" /></li>
+          {% else %}
+            <li class="sin-clase indie-flower-regular">Hoy no hay clase, es {{ motivo_festivo | downcase }}.</li>
+            <li><img class="image festivo" src="{{ icon_festivo }}" /></li>
+          {% endif %}
+        {% elsif materias.size > 0 %}
+          {% for nombre in materias %}
+            {% assign icono = "https://staticfilestrml.blob.core.windows.net/icons/asignaturas/microscope.svg" %}
+            {% if nombre contains "Matemáticas" %}{% assign icono = "https://staticfilestrml.blob.core.windows.net/icons/asignaturas/calculator-button-hand-drawn-signs.svg" %}{% endif %}
+            {% if nombre contains "Lengua" %}{% assign icono = "https://staticfilestrml.blob.core.windows.net/icons/asignaturas/book-opened-outlined-hand-drawn-tool.svg" %}{% endif %}
+            {% if nombre contains "Galego" %}{% assign icono = "https://staticfilestrml.blob.core.windows.net/icons/asignaturas/vieira-icon.png" %}{% endif %}
+            {% if nombre contains "C. Naturais" %}{% assign icono = "https://staticfilestrml.blob.core.windows.net/icons/asignaturas/microscope.svg" %}{% endif %}
+            {% if nombre contains "C. Sociales" %}{% assign icono = "https://staticfilestrml.blob.core.windows.net/icons/asignaturas/earth-globe.svg" %}{% endif %}
+            {% if nombre contains "Ed. Física" %}{% assign icono = "https://staticfilestrml.blob.core.windows.net/icons/asignaturas/teacher.svg" %}{% endif %}
+            {% if nombre contains "Música" %}{% assign icono = "https://staticfilestrml.blob.core.windows.net/icons/asignaturas/music.svg" %}{% endif %}
+            {% if nombre contains "English" %}{% assign icono = "https://staticfilestrml.blob.core.windows.net/icons/asignaturas/big-ben-clock.svg" %}{% endif %}
+            {% if nombre contains "Plástica" %}{% assign icono = "https://staticfilestrml.blob.core.windows.net/icons/asignaturas/painbrush-and-painter-palette.svg" %}{% endif %}
+            {% if nombre contains "Proxecto" %}{% assign icono = "https://staticfilestrml.blob.core.windows.net/icons/asignaturas/notebook-and-pencil-hand-drawn-writing-tools.svg" %}{% endif %}
+            <li>
+              <img class="image icon" src="{{ icono }}" />
+              <span class="indie-flower-regular asignatura">{{ nombre }}</span>
+            </li>
+          {% endfor %}
+        {% else %}
+          {% if mostrando_manana %}
+            <li class="sin-clase indie-flower-regular">Mañana no hay clase.</li>
+          {% else %}
+            <li class="sin-clase indie-flower-regular">Hoy no hay clases fin de semana.</li>
+          {% endif %}
+        {% endif %}
+      </ul>
+    </div>
+    <div class="column">
+      {% comment %} WEATHER - Información meteorológica {% endcomment %}
+      {% if weather_casa_icon and weather_casa_icon != "" %}
+      <div class="weather-container indie-flower-regular">
+        {% comment %} Tiempo en Casa {% endcomment %}
+        <div class="weather-item">
+          <img class="image weather-icon" src="{{ weather_casa_icon }}" alt="Tiempo" />
+          <div class="weather-text">
+            <span class="weather-label">Casa:</span>
+            <span>{{ weather_casa_text }}</span>
+            {% if weather_casa_rain_3h %}
+            <span class="rain-warning">☂</span>
+            {% endif %}
+          </div>
+        </div>
+
+        {% comment %} Tiempo en Colegio {% endcomment %}
+        {% if weather_colegio_icon and weather_colegio_icon != "" %}
+        <div class="weather-item">
+          <img class="image weather-icon" src="{{ weather_colegio_icon }}" alt="Tiempo" />
+          <div class="weather-text">
+            <span class="weather-label">Cole:</span>
+            <span>{{ weather_colegio_text }}</span>
+            {% if weather_colegio_rain_3h %}
+            <span class="rain-warning">☂</span>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% comment %} Mostrar cumpleaños solo si hay coincidencia con la fecha mostrada {% endcomment %}
+      {% if hay_cumpleanos %}
+      <div class="cumpleanos-container indie-flower-regular">
+        <img class="image eta-icon-small" src="https://staticfilestrml.blob.core.windows.net/icons/festivos/birthday-cake-hand-drawn.svg" />
+        <span class="indie-flower-regular eta-label">{{ nombre_cumpleanos }} ({{ edad_cumpleanos }})</span>
+      </div>
+      {% endif %}
+
+      {% comment %} ETAs - Tiempos estimados {% endcomment %}
+      {% comment %} Solo mostrar si hay materias, no es festivo Y estamos en ventana de tiempo {% endcomment %}
+      {% if materias.size > 0 and es_festivo == false and show_routes %}
+      <div class="eta-container indie-flower-regular">
+        <div class="eta-item">
+          <div class="eta-icons">
+            <img class="image eta-icon-small" src="https://staticfilestrml.blob.core.windows.net/icons/ruta/school-bus-hand-drawn-transport-svgrepo-com.svg" />
+            <span class="indie-flower-regular eta-label">{{ eta_directo_display }}</span>
+            <img class="image eta-icon-small" src="https://staticfilestrml.blob.core.windows.net/icons/ruta/hospital-wagon.svg" />
+            <span class="indie-flower-regular eta-label">{{ eta_con_hospital_display }}</span>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+<div class="title_bar">
+  <img class="image" src="https://escolarosaliadecastro.edu.es/wp-content/uploads/2019/11/cropped-icono-1-32x32.png" />
+  <span class="title">Colegio</span>
+  <span class="instance">Marina</span>
+</div>
