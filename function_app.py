@@ -201,8 +201,17 @@ def parse_weather_forecast(forecast_data: dict, location_name: str) -> dict:
 
             # Parsear la fecha del día
             if begin_time_str:
-                # Formato: "2025-11-11T18:45:56+01"
-                day_date = datetime.fromisoformat(begin_time_str.replace('+01', '+01:00'))
+                # Normalizar timezone
+                time_str_normalized = begin_time_str
+                if '+' in begin_time_str and ':' not in begin_time_str.split('+')[1]:
+                    parts = begin_time_str.rsplit('+', 1)
+                    time_str_normalized = f"{parts[0]}+{parts[1]}:00"
+                elif '-' in begin_time_str and begin_time_str.count('-') > 2:
+                    parts = begin_time_str.rsplit('-', 1)
+                    if ':' not in parts[1]:
+                        time_str_normalized = f"{parts[0]}-{parts[1]}:00"
+
+                day_date = datetime.fromisoformat(time_str_normalized)
 
                 day_info = {
                     "date": day_date.strftime("%Y-%m-%d"),
@@ -284,13 +293,51 @@ def get_current_weather_summary(weather_info: dict) -> dict:
     current_icon = ""
     sky_states = today_data.get('sky_state', [])
 
+    logging.info(f'  DEBUG: Encontrados {len(sky_states)} valores de sky_state para hoy')
+
+    # Buscar el valor más reciente (pasado) o el primero del futuro
+    closest_past_sky = None
+    closest_future_sky = None
+
     for sky in sky_states:
         time_str = sky.get('time', '')
         if time_str:
-            sky_time = datetime.fromisoformat(time_str.replace('+01', '+01:00'))
-            if sky_time <= now_spanish:
-                current_sky = sky.get('value', 'N/A')
-                current_icon = sky.get('icon', '')
+            # Manejar diferentes formatos de timezone (+01, +02, etc.)
+            # Convertir "+01" a "+01:00", "+02" a "+02:00", etc.
+            time_str_normalized = time_str
+            if '+' in time_str and ':' not in time_str.split('+')[1]:
+                # Si tiene + pero no tiene : después del offset, añadir :00
+                parts = time_str.rsplit('+', 1)
+                time_str_normalized = f"{parts[0]}+{parts[1]}:00"
+            elif '-' in time_str and time_str.count('-') > 2:  # Para offsets negativos
+                parts = time_str.rsplit('-', 1)
+                if ':' not in parts[1]:
+                    time_str_normalized = f"{parts[0]}-{parts[1]}:00"
+
+            try:
+                sky_time = datetime.fromisoformat(time_str_normalized)
+                # Asegurar que ambos datetimes son aware y comparables
+                if sky_time.tzinfo is None:
+                    continue
+
+                if sky_time <= now_spanish:
+                    # Es del pasado, guardar el más reciente
+                    closest_past_sky = sky
+                elif closest_future_sky is None:
+                    # Es del futuro, guardar solo el primero
+                    closest_future_sky = sky
+            except (ValueError, AttributeError) as e:
+                logging.warning(f"Error al parsear tiempo del cielo '{time_str}': {e}")
+                continue
+
+    # Usar el valor del pasado si existe, si no, el del futuro
+    selected_sky = closest_past_sky if closest_past_sky else closest_future_sky
+    if selected_sky:
+        current_sky = selected_sky.get('value', 'N/A')
+        current_icon = selected_sky.get('icon', '')
+        logging.info(f'  DEBUG: Sky seleccionado - valor: {current_sky}, hora: {selected_sky.get("time", "N/A")}')
+    else:
+        logging.warning(f'  DEBUG: No se encontró ningún valor de sky_state válido')
 
     # Verificar si habrá lluvia en las próximas 3 horas
     next_hours_rain = False
@@ -300,11 +347,25 @@ def get_current_weather_summary(weather_info: dict) -> dict:
     for precip in precipitation_data:
         time_str = precip.get('time', '')
         if time_str:
-            precip_time = datetime.fromisoformat(time_str.replace('+01', '+01:00'))
-            if now_spanish <= precip_time <= three_hours_later:
-                if precip.get('value', 0) > 0:
-                    next_hours_rain = True
-                    break
+            # Normalizar timezone igual que para sky_state
+            time_str_normalized = time_str
+            if '+' in time_str and ':' not in time_str.split('+')[1]:
+                parts = time_str.rsplit('+', 1)
+                time_str_normalized = f"{parts[0]}+{parts[1]}:00"
+            elif '-' in time_str and time_str.count('-') > 2:
+                parts = time_str.rsplit('-', 1)
+                if ':' not in parts[1]:
+                    time_str_normalized = f"{parts[0]}-{parts[1]}:00"
+
+            try:
+                precip_time = datetime.fromisoformat(time_str_normalized)
+                if now_spanish <= precip_time <= three_hours_later:
+                    if precip.get('value', 0) > 0:
+                        next_hours_rain = True
+                        break
+            except (ValueError, AttributeError) as e:
+                logging.warning(f"Error al parsear tiempo de precipitación '{time_str}': {e}")
+                continue
 
     # Calcular precipitación total del día
     total_precipitation_today = sum(p.get('value', 0) for p in precipitation_data)
