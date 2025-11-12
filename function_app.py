@@ -457,7 +457,7 @@ def map_weather_to_svg_icon(sky_state: str, is_night: bool = False, base_url: st
         # Para blob storage u otros, simplemente concatenar
         return f"{base_url}/{icon_filename}"
 
-def get_current_weather_summary(weather_info: dict, icons_base_url: str = None, solar_info: dict = None) -> dict:
+def get_current_weather_summary(weather_info: dict, icons_base_url: str = None, solar_info: dict = None, target_date: str = None) -> dict:
     """
     Obtiene un resumen del tiempo actual y para las próximas horas.
 
@@ -465,6 +465,7 @@ def get_current_weather_summary(weather_info: dict, icons_base_url: str = None, 
         weather_info: Datos meteorológicos parseados
         icons_base_url: URL base para los iconos meteorológicos (opcional)
         solar_info: Información solar (sunrise/sunset) parseada (opcional)
+        target_date: Fecha objetivo en formato "YYYY-MM-DD" (opcional, por defecto hoy)
 
     Returns:
         Resumen del tiempo para mostrar en el display
@@ -481,12 +482,18 @@ def get_current_weather_summary(weather_info: dict, icons_base_url: str = None, 
     spanish_tz = tz.gettz('Europe/Madrid')
     now_spanish = datetime.now(spanish_tz)
 
-    today_date = now_spanish.strftime("%Y-%m-%d")
+    # Usar fecha objetivo si se proporciona, si no usar hoy
+    if target_date:
+        search_date = target_date
+        logging.info(f'  DEBUG: Buscando datos meteorológicos para fecha objetivo: {search_date}')
+    else:
+        search_date = now_spanish.strftime("%Y-%m-%d")
+        logging.info(f'  DEBUG: Buscando datos meteorológicos para hoy: {search_date}')
 
-    # Buscar el día de hoy
+    # Buscar el día objetivo
     today_data = None
     for day in weather_info.get('days', []):
-        if day['date'] == today_date:
+        if day['date'] == search_date:
             today_data = day
             break
 
@@ -1063,6 +1070,56 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         else:
             logging.warning(f'  ⚠ Error al obtener datos solares: {solar_data.get("error")}')
 
+        # Determinar si mostrar el tiempo de hoy o mañana (a partir de las 19:00)
+        spanish_tz = tz.gettz('Europe/Madrid')
+        now_spanish = datetime.now(spanish_tz)
+        current_hour = now_spanish.hour
+
+        weather_target_date = None  # None = hoy
+        if current_hour >= 19:
+            # A partir de las 19:00, verificar si mañana hay colegio
+            tomorrow = now_spanish + timedelta(days=1)
+            tomorrow_weekday = tomorrow.weekday()  # 0=Lunes, 6=Domingo
+            tomorrow_date_str = tomorrow.strftime("%Y-%m-%d")
+
+            # Verificar si mañana es fin de semana (sábado=5, domingo=6)
+            is_weekend = tomorrow_weekday in [5, 6]
+
+            # Verificar si mañana es festivo
+            festivos_list = config.get('festivos', [])
+            # Crear una fecha temporal para is_holiday usando mañana
+            original_now = datetime.now(spanish_tz)
+            # is_holiday usa datetime.now(), necesitamos hacer un workaround
+            is_tomorrow_holiday = False
+            if festivos_list:
+                for festivo in festivos_list:
+                    if '..' in festivo:
+                        # Rango de fechas
+                        start_str, end_str = festivo.split('..')
+                        start_date = datetime.strptime(start_str.strip(), '%Y-%m-%d').date()
+                        end_date = datetime.strptime(end_str.strip(), '%Y-%m-%d').date()
+                        if start_date <= tomorrow.date() <= end_date:
+                            is_tomorrow_holiday = True
+                            break
+                    else:
+                        # Fecha única
+                        festivo_date = datetime.strptime(festivo.strip(), '%Y-%m-%d').date()
+                        if tomorrow.date() == festivo_date:
+                            is_tomorrow_holiday = True
+                            break
+
+            # Solo mostrar tiempo de mañana si hay colegio (no es fin de semana ni festivo)
+            if not is_weekend and not is_tomorrow_holiday:
+                weather_target_date = tomorrow_date_str
+                logging.info(f'🌙 Hora >= 19:00 y mañana HAY colegio - Mostrando predicción para MAÑANA ({weather_target_date})')
+            else:
+                if is_weekend:
+                    logging.info(f'🌙 Hora >= 19:00 pero mañana es FIN DE SEMANA - Mostrando predicción para HOY')
+                else:
+                    logging.info(f'🌙 Hora >= 19:00 pero mañana es FESTIVO - Mostrando predicción para HOY')
+        else:
+            logging.info(f'☀️ Hora < 19:00 - Mostrando predicción para HOY')
+
         # Obtener predicción para casa
         logging.info('📍 Predicción para Casa')
         forecast_casa = get_meteogalicia_forecast(
@@ -1074,9 +1131,9 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         if forecast_casa['success']:
             weather_info_casa = parse_weather_forecast(forecast_casa, 'casa')
             if weather_info_casa.get('success'):
-                weather_casa_summary = get_current_weather_summary(weather_info_casa, weather_icons_base_url, solar_info)
+                weather_casa_summary = get_current_weather_summary(weather_info_casa, weather_icons_base_url, solar_info, weather_target_date)
                 logging.info(f'  ✓ Tiempo actual: {weather_casa_summary.get("current_sky", "N/A")}')
-                logging.info(f'  ✓ Precipitación hoy: {weather_casa_summary.get("total_precipitation_today", 0)} mm')
+                logging.info(f'  ✓ Precipitación: {weather_casa_summary.get("total_precipitation_today", 0)} mm')
             else:
                 logging.error(f'  ✗ Error al parsear datos: {weather_info_casa.get("error")}')
         else:
@@ -1093,9 +1150,9 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         if forecast_colegio['success']:
             weather_info_colegio = parse_weather_forecast(forecast_colegio, 'colegio')
             if weather_info_colegio.get('success'):
-                weather_colegio_summary = get_current_weather_summary(weather_info_colegio, weather_icons_base_url, solar_info)
+                weather_colegio_summary = get_current_weather_summary(weather_info_colegio, weather_icons_base_url, solar_info, weather_target_date)
                 logging.info(f'  ✓ Tiempo actual: {weather_colegio_summary.get("current_sky", "N/A")}')
-                logging.info(f'  ✓ Precipitación hoy: {weather_colegio_summary.get("total_precipitation_today", 0)} mm')
+                logging.info(f'  ✓ Precipitación: {weather_colegio_summary.get("total_precipitation_today", 0)} mm')
             else:
                 logging.error(f'  ✗ Error al parsear datos: {weather_info_colegio.get("error")}')
         else:
