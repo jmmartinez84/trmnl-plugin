@@ -26,13 +26,32 @@ La función está configurada con un **time trigger que se ejecuta cada 15 minut
 
 ### Schedule de Ejecución
 - **Frecuencia**: Cada 15 minutos
-- **Días**: Lunes a Viernes
-- **Horario UTC**: 6:00-9:59 y 12:00-15:59
-- **Cron**: `0 */15 6-9,12-15 * * 1-5`
+- **Días**: Lunes a Viernes + Domingos
+- **Horarios (hora española)**:
+  - L-V: 6:00-8:30, 13:00-14:30, 17:30-23:30
+  - Domingo: 17:30-23:30
+  - Sábados: No se ejecuta
+- **Cron**: `0 */15 6-8,13-14,17-23 * * 0,1-5`
 
-### Ventanas de Tiempo Activas (Hora Española)
+**Optimización de recursos**: La función hace **early exit** si se ejecuta fuera de las ventanas exactas de visualización del plugin TRMNL, ahorrando recursos y costos.
 
-La función solo **obtiene datos de Google Maps** durante estas ventanas:
+### Ventanas de Visualización (Hora Española)
+
+El plugin TRMNL se muestra en estas franjas horarias:
+
+**Lunes a Viernes**:
+- 6:00-8:30 (Mañana)
+- 13:00-14:30 (Mediodía)
+- 17:30-23:30 (Tarde/Noche)
+
+**Domingos**:
+- 17:30-23:30 (Tarde/Noche)
+
+**Sábados**: No se muestra
+
+### Ventanas para ETAs de Google Maps
+
+La función solo **obtiene datos de Google Maps** durante estas ventanas más restringidas:
 
 **Ventana Mañana**: 7:30 AM - 9:00 AM
 - Actualizaciones cada 15 minutos con tráfico en tiempo real
@@ -42,13 +61,29 @@ La función solo **obtiene datos de Google Maps** durante estas ventanas:
 - Actualizaciones cada 15 minutos con tráfico en tiempo real
 - Ejemplo: 13:30, 13:45, 14:00, 14:15, 14:30, 14:45
 
-### Comportamiento Fuera de Ventanas
+### Comportamiento por Ventanas
 
-Fuera de las ventanas activas (7:30-9:00 y 13:30-14:45) **O en días festivos**:
-- La función **NO hace llamadas a Google Maps API**
-- Solo actualiza `show_routes=false` en el webhook
-- Las rutas se ocultan automáticamente en la pantalla TRMNL
-- Ahorra costos de API y reduce tráfico innecesario
+**Dentro de ventanas de ETAs** (7:30-9:00 y 13:30-14:45):
+- ✅ Llama a Google Maps API para rutas actualizadas con tráfico
+- ✅ Actualiza información meteorológica
+- ✅ Muestra ETAs en pantalla TRMNL
+- ✅ `show_routes=true`
+
+**Dentro de ventanas de visualización pero fuera de ventanas de ETAs**:
+- ⏸️ NO hace llamadas a Google Maps API (ahorro de costos)
+- ✅ Actualiza información meteorológica
+- ⏸️ Oculta ETAs en pantalla TRMNL
+- ⏸️ `show_routes=false`
+
+**Fuera de ventanas de visualización**:
+- ⏸️ Early exit - la función termina inmediatamente
+- ⏸️ No consume recursos ni hace llamadas a APIs
+- ⏸️ Máximo ahorro de costos
+
+**En días festivos**:
+- ⏸️ NO hace llamadas a Google Maps API
+- ✅ Actualiza información meteorológica
+- ⏸️ Las rutas se ocultan automáticamente
 
 ### Gestión de Festivos
 
@@ -255,19 +290,28 @@ az functionapp config appsettings set \
 
 ### Cambiar Horarios
 
-Modifica la expresión cron en el decorador `@app.timer_trigger`:
+Modifica la expresión cron en el decorador `@app.timer_trigger` en `function_app.py`:
 
 ```python
-@app.timer_trigger(schedule="0 50 6,12 * * *", ...)
+@app.timer_trigger(schedule="0 */15 6-8,13-14,17-23 * * 0,1-5", ...)
 ```
 
-Formato cron: `segundo minuto hora dia mes dia_semana`
-- `0 50 6,12 * * *` = A los 50 minutos de las 6 y 12 horas (UTC)
+**Formato cron**: `segundo minuto hora dia mes dia_semana`
 
-Para horario de verano (CEST = UTC+2), usa:
+**Expresión actual**:
+- `0` = En el segundo 0
+- `*/15` = Cada 15 minutos
+- `6-8,13-14,17-23` = Horas 6-8, 13-14, 17-23 (rangos horarios)
+- `*` = Todos los días del mes
+- `*` = Todos los meses
+- `0,1-5` = Domingo (0) y Lunes-Viernes (1-5)
+
+**Ejemplo**: Para ejecutar solo cada 30 minutos:
 ```python
-@app.timer_trigger(schedule="0 50 5,11 * * *", ...)
+@app.timer_trigger(schedule="0 */30 6-8,13-14,17-23 * * 0,1-5", ...)
 ```
+
+**IMPORTANTE**: También debes actualizar la función `is_in_display_window()` para que coincida con las ventanas de tiempo que configures en el cron.
 
 ### Cambiar Webhook de TRMNL
 
@@ -418,20 +462,34 @@ Asegúrate de que la variable de entorno esté configurada correctamente en Azur
 ### Google Maps API
 - Routes API: Consulta la [página de precios](https://developers.google.com/maps/billing-and-pricing/pricing)
 - **2 rutas por ejecución** (directa + hospital)
-- **Ventana mañana**: ~7 ejecuciones × 2 rutas = 14 llamadas/día
-- **Ventana tarde**: ~6 ejecuciones × 2 rutas = 12 llamadas/día
-- **Total**: ~26 llamadas/día × 5 días/semana = **~520 llamadas/mes**
+- **Solo se ejecuta en ventanas de ETAs** (7:30-9:00 y 13:30-14:45, L-V)
+- **Ventana mañana** (7:30-9:00): 6 ejecuciones × 2 rutas = 12 llamadas/día
+- **Ventana tarde** (13:30-14:45): 5 ejecuciones × 2 rutas = 10 llamadas/día
+- **Total**: ~22 llamadas/día × 5 días/semana = **~110 llamadas/semana** ≈ **~470 llamadas/mes**
+
+### MeteoGalicia API
+- API gratuita de la Xunta de Galicia
+- **2 ubicaciones por ejecución** (casa + colegio)
+- Se ejecuta en todas las ventanas de visualización
+- **L-V**: 40 ejecuciones/día × 2 ubicaciones = 80 llamadas/día
+- **Domingo**: 24 ejecuciones/día × 2 ubicaciones = 48 llamadas/día
+- **Total**: ~590 llamadas/semana ≈ **~2540 llamadas/mes** (GRATIS)
 
 ### Azure Functions
 - Plan de Consumo: Primeras 1M ejecuciones gratis cada mes
-- Esta función se ejecuta cada 15 min de 6-10 y 12-16 UTC (lunes a viernes)
-- **Total**: ~40 ejecuciones/día × ~22 días laborables = **~880 ejecuciones/mes**
+- **Ventanas de visualización optimizadas**:
+  - L-V: 6:00-8:30, 13:00-14:30, 17:30-23:30 (10h/día = 40 ejecuciones/día)
+  - Domingo: 17:30-23:30 (6h/día = 24 ejecuciones/día)
+  - Sábados: 0 ejecuciones
+- **Total**: ~224 ejecuciones/semana ≈ **~963 ejecuciones/mes**
 - Muy por debajo del límite gratuito de 1M
 
 ### Optimización de Costos
-- Solo hace llamadas a Google Maps durante ventanas activas (7:30-9:00 y 13:30-14:45)
-- Fuera de esas ventanas, solo actualiza visibilidad (sin costo de Google Maps)
-- Ahorra ~70% de costos vs ejecutar todo el día
+- ✅ **Early exit** fuera de ventanas de visualización (ahorra ~66% de ejecuciones)
+- ✅ Solo llama a Google Maps en ventanas de ETAs (7:30-9:00, 13:30-14:45)
+- ✅ No se ejecuta sábados (día sin visualización)
+- ✅ Actualización meteorológica gratuita con MeteoGalicia
+- ✅ Ahorra ~80% de costos vs ejecutar 24/7
 
 ## Seguridad
 

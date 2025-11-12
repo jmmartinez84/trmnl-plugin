@@ -533,6 +533,52 @@ def should_show_routes(festivos_list: list = None) -> bool:
 
     return in_morning_window or in_afternoon_window
 
+def is_in_display_window() -> bool:
+    """
+    Determina si estamos en una ventana de tiempo donde el plugin se muestra en TRMNL.
+
+    El plugin se muestra:
+    - Lunes a Viernes: 6:00-8:30, 13:00-14:30, 17:30-23:30
+    - Domingos: 17:30-23:30
+    - No se muestra los sábados
+
+    Returns:
+        True si estamos en una ventana de visualización, False en caso contrario
+    """
+    spanish_tz = tz.gettz('Europe/Madrid')
+    now_spanish = datetime.now(spanish_tz)
+
+    current_hour = now_spanish.hour
+    current_minute = now_spanish.minute
+    current_weekday = now_spanish.weekday()  # 0=Lunes, 6=Domingo
+
+    # Convertir a minutos desde medianoche
+    current_time_minutes = current_hour * 60 + current_minute
+
+    # Definir ventanas de tiempo en minutos desde medianoche
+    morning_start = 6 * 60           # 6:00 AM = 360 minutos
+    morning_end = 8 * 60 + 30        # 8:30 AM = 510 minutos
+    noon_start = 13 * 60             # 13:00 PM = 780 minutos
+    noon_end = 14 * 60 + 30          # 14:30 PM = 870 minutos
+    evening_start = 17 * 60 + 30     # 17:30 PM = 1050 minutos
+    evening_end = 23 * 60 + 30       # 23:30 PM = 1410 minutos
+
+    # Verificar ventanas de tiempo
+    in_morning_window = morning_start <= current_time_minutes <= morning_end
+    in_noon_window = noon_start <= current_time_minutes <= noon_end
+    in_evening_window = evening_start <= current_time_minutes <= evening_end
+
+    # Domingos (6): solo ventana de tarde
+    if current_weekday == 6:
+        return in_evening_window
+
+    # Sábados (5): no se muestra
+    if current_weekday == 5:
+        return False
+
+    # Lunes a Viernes (0-4): todas las ventanas
+    return in_morning_window or in_noon_window or in_evening_window
+
 def format_duration_as_minutes(duration_str: str) -> str:
     """
     Convierte una duración en formato "XXXs" a "XX min".
@@ -726,20 +772,23 @@ def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_t
             "status_code": getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
         }
 
-@app.timer_trigger(schedule="0 */15 6-9,12-15 * * 1-5", arg_name="myTimer", run_on_startup=False,
+@app.timer_trigger(schedule="0 */15 6-8,13-14,17-23 * * 0,1-5", arg_name="myTimer", run_on_startup=False,
               use_monitor=False)
 def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
     """
-    Función de Azure que se ejecuta cada 15 minutos durante las horas activas.
+    Función de Azure que se ejecuta cada 15 minutos durante las ventanas de visualización.
 
-    Horarios de ejecución (UTC):
-    - Cada 15 minutos entre las 6:00-9:59 UTC (cubre 7:30-9:00 hora española)
-    - Cada 15 minutos entre las 12:00-15:59 UTC (cubre 13:30-14:45 hora española)
-    - Solo de lunes a viernes (1-5)
+    Horarios de ejecución (hora española):
+    - Lunes a Viernes: 6:00-8:30, 13:00-14:30, 17:30-23:30
+    - Domingos: 17:30-23:30
+    - No se ejecuta los sábados
 
-    La función verifica internamente si está en la ventana de tiempo correcta
-    (7:30-9:00 o 13:30-14:45 hora española) antes de hacer las llamadas a Google Maps.
-    Fuera de esas ventanas, solo actualiza show_routes=false.
+    Cron expression: "0 */15 6-8,13-14,17-23 * * 0,1-5"
+    - 0,1-5 = Domingo(0), Lunes-Viernes(1-5)
+    - Rangos horarios: 6-8, 13-14, 17-23 (UTC, ajusta para hora española)
+
+    La función hace early exit si está fuera de las ventanas exactas de visualización.
+    Para ETAs específicamente, verifica ventanas más estrictas (7:30-9:00, 13:30-14:45).
     """
     utc = tz.UTC
     spanish_tz = tz.gettz('Europe/Madrid')
@@ -750,6 +799,14 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
 
     logging.info(f'Timer trigger ejecutado a las {current_time_utc.strftime("%Y-%m-%d %H:%M:%S")} UTC')
     logging.info(f'Hora española: {current_time_spanish.strftime("%Y-%m-%d %H:%M:%S %Z")}')
+
+    # Early exit: verificar si estamos en ventana de visualización
+    if not is_in_display_window():
+        logging.info('⏸️ Fuera de ventanas de visualización (L-V: 6:00-8:30, 13:00-14:30, 17:30-23:30 | Dom: 17:30-23:30)')
+        logging.info('⏸️ Saltando ejecución para ahorrar recursos')
+        return
+
+    logging.info('✓ Dentro de ventana de visualización - continuando ejecución')
 
     # Obtener configuración desde variables de entorno
     config = get_env_config()
