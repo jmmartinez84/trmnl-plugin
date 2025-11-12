@@ -322,6 +322,9 @@ PLUGIN: HORARIO DIARIO v3.8
             <div class="weather-text">
               <span class="weather-label">Cole:</span>
               <span>{{ weather_colegio_text }}</span>
+              {% if weather_colegio_temperature %}
+              <span> {{ weather_colegio_temperature }}°</span>
+              {% endif %}
               {% if weather_colegio_rain_3h %}
               <span class="rain-warning">☂</span>
               {% endif %}
@@ -338,6 +341,9 @@ PLUGIN: HORARIO DIARIO v3.8
             <div class="weather-text">
               <span class="weather-label">Casa:</span>
               <span>{{ weather_casa_text }}</span>
+              {% if weather_casa_temperature %}
+              <span> {{ weather_casa_temperature }}°</span>
+              {% endif %}
               {% if weather_casa_rain_3h %}
               <span class="rain-warning">☂</span>
               {% endif %}
