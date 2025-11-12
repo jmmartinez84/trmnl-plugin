@@ -4,10 +4,12 @@
     "timestamp": "2025-11-11T18:10:34.000000+00:00",
     "weather_casa_sky": "WEAK_SHOWERS",
     "weather_casa_icon": "https://tudominio.blob.core.windows.net/iconos/weather-icons-40.svg",
+    "weather_casa_temperature": 15.2,
     "weather_casa_rain_3h": true,
     "weather_casa_precipitation_today": 1.9,
     "weather_colegio_sky": "PARTLY_CLOUDY",
     "weather_colegio_icon": "https://tudominio.blob.core.windows.net/iconos/weather-icons-18.svg",
+    "weather_colegio_temperature": 16.8,
     "weather_colegio_rain_3h": false,
     "weather_colegio_precipitation_today": 0.5
   }

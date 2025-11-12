@@ -104,6 +104,12 @@ Puedes usar iconos desde:
 
 Ver `weather_icons_download_list.md` para instrucciones de descarga de los iconos.
 
+### `weather_casa_temperature` (float o null)
+- Temperatura actual en casa (en grados Celsius)
+- Formato: `15.2` (grados Celsius con 1 decimal)
+- Ejemplo: `18.5` = 18.5°C
+- Puede ser `null` si no hay datos disponibles
+
 ### `weather_casa_rain_3h` (boolean)
 - Indica si habrá lluvia en las próximas 3 horas en casa
 - `true`: Se espera precipitación
@@ -125,6 +131,11 @@ Ver `weather_icons_download_list.md` para instrucciones de descarga de los icono
 - URL del icono meteorológico del colegio en formato SVG
 - Mismo formato y mapeo que `weather_casa_icon`
 - Los iconos son compatibles con TRMNL e-ink y cambian entre día/noche automáticamente
+
+### `weather_colegio_temperature` (float o null)
+- Temperatura actual en el colegio (en grados Celsius)
+- Mismo formato que `weather_casa_temperature`
+- Puede ser `null` si no hay datos disponibles
 
 ### `weather_colegio_rain_3h` (boolean)
 - Indica si habrá lluvia en las próximas 3 horas en el colegio
@@ -174,6 +185,9 @@ Para mostrar los estados en español en tu plantilla Liquid:
   <h3>Tiempo en Casa</h3>
   <img src="{{ weather_casa_icon }}" alt="Tiempo">
   <p>{{ weather_casa_sky }}</p>
+  {% if weather_casa_temperature %}
+    <p>Temperatura: {{ weather_casa_temperature }}°C</p>
+  {% endif %}
   {% if weather_casa_rain_3h %}
     <p>⚠️ Lluvia próximas 3h</p>
   {% endif %}

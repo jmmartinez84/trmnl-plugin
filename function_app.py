@@ -126,7 +126,7 @@ def get_meteogalicia_forecast(latitude: float, longitude: float, api_key: str) -
 
     params = {
         "coords": f"{longitude},{latitude}",
-        "variables": "sky_state,precipitation_amount",
+        "variables": "sky_state,precipitation_amount,temperature",
         "lang": "gl",
         "API_KEY": api_key
     }
@@ -216,7 +216,8 @@ def parse_weather_forecast(forecast_data: dict, location_name: str) -> dict:
                 day_info = {
                     "date": day_date.strftime("%Y-%m-%d"),
                     "sky_state": [],
-                    "precipitation": []
+                    "precipitation": [],
+                    "temperature": []
                 }
 
                 variables = day_data.get('variables', [])
@@ -235,6 +236,12 @@ def parse_weather_forecast(forecast_data: dict, location_name: str) -> dict:
                     elif var_name == 'precipitation_amount':
                         for val in values:
                             day_info['precipitation'].append({
+                                "time": val.get('timeInstant', ''),
+                                "value": val.get('value', 0)
+                            })
+                    elif var_name == 'temperature':
+                        for val in values:
+                            day_info['temperature'].append({
                                 "time": val.get('timeInstant', ''),
                                 "value": val.get('value', 0)
                             })
@@ -329,6 +336,7 @@ def get_current_weather_summary(weather_info: dict, icons_base_url: str = None) 
         return {
             "current_sky": "N/A",
             "current_icon": "",
+            "current_temperature": None,
             "next_hours_rain": False,
             "total_precipitation_today": 0
         }
@@ -349,6 +357,7 @@ def get_current_weather_summary(weather_info: dict, icons_base_url: str = None) 
         return {
             "current_sky": "N/A",
             "current_icon": "",
+            "current_temperature": None,
             "next_hours_rain": False,
             "total_precipitation_today": 0
         }
@@ -412,6 +421,50 @@ def get_current_weather_summary(weather_info: dict, icons_base_url: str = None) 
     else:
         logging.warning(f'  DEBUG: No se encontró ningún valor de sky_state válido')
 
+    # Encontrar la temperatura más cercana a la hora actual
+    current_temperature = None
+    temperature_data = today_data.get('temperature', [])
+
+    logging.info(f'  DEBUG: Encontrados {len(temperature_data)} valores de temperatura para hoy')
+
+    # Buscar el valor más reciente (pasado) o el primero del futuro
+    closest_past_temp = None
+    closest_future_temp = None
+
+    for temp in temperature_data:
+        time_str = temp.get('time', '')
+        if time_str:
+            # Normalizar timezone igual que para sky_state
+            time_str_normalized = time_str
+            if '+' in time_str and ':' not in time_str.split('+')[1]:
+                parts = time_str.rsplit('+', 1)
+                time_str_normalized = f"{parts[0]}+{parts[1]}:00"
+            elif '-' in time_str and time_str.count('-') > 2:
+                parts = time_str.rsplit('-', 1)
+                if ':' not in parts[1]:
+                    time_str_normalized = f"{parts[0]}-{parts[1]}:00"
+
+            try:
+                temp_time = datetime.fromisoformat(time_str_normalized)
+                if temp_time.tzinfo is None:
+                    continue
+
+                if temp_time <= now_spanish:
+                    closest_past_temp = temp
+                elif closest_future_temp is None:
+                    closest_future_temp = temp
+            except (ValueError, AttributeError) as e:
+                logging.warning(f"Error al parsear tiempo de temperatura '{time_str}': {e}")
+                continue
+
+    # Usar el valor del pasado si existe, si no, el del futuro
+    selected_temp = closest_past_temp if closest_past_temp else closest_future_temp
+    if selected_temp:
+        current_temperature = round(selected_temp.get('value', 0), 1)
+        logging.info(f'  DEBUG: Temperatura seleccionada - valor: {current_temperature}°C, hora: {selected_temp.get("time", "N/A")}')
+    else:
+        logging.warning(f'  DEBUG: No se encontró ningún valor de temperatura válido')
+
     # Verificar si habrá lluvia en las próximas 3 horas
     next_hours_rain = False
     three_hours_later = now_spanish + timedelta(hours=3)
@@ -446,6 +499,7 @@ def get_current_weather_summary(weather_info: dict, icons_base_url: str = None) 
     return {
         "current_sky": current_sky,
         "current_icon": current_icon,
+        "current_temperature": current_temperature,
         "next_hours_rain": next_hours_rain,
         "total_precipitation_today": round(total_precipitation_today, 1)
     }
@@ -619,6 +673,7 @@ def send_visibility_only_to_webhook(show_routes: bool, webhook_url: str,
         merge_vars.update({
             "weather_casa_sky": weather_casa.get('current_sky', 'N/A'),
             "weather_casa_icon": weather_casa.get('current_icon', ''),
+            "weather_casa_temperature": weather_casa.get('current_temperature'),
             "weather_casa_rain_3h": weather_casa.get('next_hours_rain', False),
             "weather_casa_precipitation_today": weather_casa.get('total_precipitation_today', 0)
         })
@@ -627,6 +682,7 @@ def send_visibility_only_to_webhook(show_routes: bool, webhook_url: str,
         merge_vars.update({
             "weather_colegio_sky": weather_colegio.get('current_sky', 'N/A'),
             "weather_colegio_icon": weather_colegio.get('current_icon', ''),
+            "weather_colegio_temperature": weather_colegio.get('current_temperature'),
             "weather_colegio_rain_3h": weather_colegio.get('next_hours_rain', False),
             "weather_colegio_precipitation_today": weather_colegio.get('total_precipitation_today', 0)
         })
@@ -721,6 +777,7 @@ def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_t
         merge_vars.update({
             "weather_casa_sky": weather_casa.get('current_sky', 'N/A'),
             "weather_casa_icon": weather_casa.get('current_icon', ''),
+            "weather_casa_temperature": weather_casa.get('current_temperature'),
             "weather_casa_rain_3h": weather_casa.get('next_hours_rain', False),
             "weather_casa_precipitation_today": weather_casa.get('total_precipitation_today', 0)
         })
@@ -729,6 +786,7 @@ def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_t
         merge_vars.update({
             "weather_colegio_sky": weather_colegio.get('current_sky', 'N/A'),
             "weather_colegio_icon": weather_colegio.get('current_icon', ''),
+            "weather_colegio_temperature": weather_colegio.get('current_temperature'),
             "weather_colegio_rain_3h": weather_colegio.get('next_hours_rain', False),
             "weather_colegio_precipitation_today": weather_colegio.get('total_precipitation_today', 0)
         })
