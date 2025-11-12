@@ -311,34 +311,40 @@ PLUGIN: HORARIO DIARIO v3.8
     </div>
     <div class="column">
       {% comment %} WEATHER - Información meteorológica {% endcomment %}
-      {% if weather_casa_icon and weather_casa_icon != "" %}
-      <div class="weather-container indie-flower-regular">
-        {% comment %} Tiempo en Casa {% endcomment %}
-        <div class="weather-item">
-          <img class="image weather-icon" src="{{ weather_casa_icon }}" alt="Tiempo" />
-          <div class="weather-text">
-            <span class="weather-label">Casa:</span>
-            <span>{{ weather_casa_text }}</span>
-            {% if weather_casa_rain_3h %}
-            <span class="rain-warning">☂</span>
-            {% endif %}
-          </div>
-        </div>
-
-        {% comment %} Tiempo en Colegio {% endcomment %}
+      {% comment %} Si show_routes=true (ventana de tiempo), mostrar tiempo del colegio {% endcomment %}
+      {% comment %} Si show_routes=false (fuera de ventana), mostrar tiempo de casa {% endcomment %}
+      {% if show_routes %}
+        {% comment %} Mostrar solo tiempo del COLEGIO {% endcomment %}
         {% if weather_colegio_icon and weather_colegio_icon != "" %}
-        <div class="weather-item">
-          <img class="image weather-icon" src="{{ weather_colegio_icon }}" alt="Tiempo" />
-          <div class="weather-text">
-            <span class="weather-label">Cole:</span>
-            <span>{{ weather_colegio_text }}</span>
-            {% if weather_colegio_rain_3h %}
-            <span class="rain-warning">☂</span>
-            {% endif %}
+        <div class="weather-container indie-flower-regular">
+          <div class="weather-item">
+            <img class="image weather-icon" src="{{ weather_colegio_icon }}" alt="Tiempo" />
+            <div class="weather-text">
+              <span class="weather-label">Cole:</span>
+              <span>{{ weather_colegio_text }}</span>
+              {% if weather_colegio_rain_3h %}
+              <span class="rain-warning">☂</span>
+              {% endif %}
+            </div>
           </div>
         </div>
         {% endif %}
-      </div>
+      {% else %}
+        {% comment %} Mostrar solo tiempo de CASA {% endcomment %}
+        {% if weather_casa_icon and weather_casa_icon != "" %}
+        <div class="weather-container indie-flower-regular">
+          <div class="weather-item">
+            <img class="image weather-icon" src="{{ weather_casa_icon }}" alt="Tiempo" />
+            <div class="weather-text">
+              <span class="weather-label">Casa:</span>
+              <span>{{ weather_casa_text }}</span>
+              {% if weather_casa_rain_3h %}
+              <span class="rain-warning">☂</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endif %}
       {% endif %}
 
       {% comment %} Mostrar cumpleaños solo si hay coincidencia con la fecha mostrada {% endcomment %}
