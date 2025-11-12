@@ -22,40 +22,43 @@ PLUGIN: HORARIO DIARIO v3.8
   .sin-clase { font-size:28px; margin-top:8px }
   .festivo { width: 256px; padding-left:35px; margin-top:20px;}
 
-  /* Estilos para Weather */
+  /* Estilos para Weather - Layout limpio sin position relative */
   .weather-container {
-    margin-bottom: 24px;
+    text-align: center;
+    margin-bottom: 20px;
   }
   .weather-item {
-    display: flex;
-    align-items: center;
-    margin-bottom: 12px;
+    display: block;
   }
   .weather-icon {
-    width: 42px;
-    height: 42px;
-    margin-right: 12px;
+    width: 140px;
+    height: 140px;
+    margin: 0 auto 10px auto;
+    display: block;
   }
   .weather-text {
-    font-size: 26px;
-    line-height: 1.2;
+    font-size: 32px;
+    line-height: 1.4;
   }
-  .weather-label {
-    font-weight: 600;
-    margin-right: 6px;
+  .weather-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 4px 0;
   }
-  .rain-warning {
-    color: #2c3e50;
-    font-size: 24px;
-    margin-left: 8px;
+  .temp-icon {
+    width: 32px;
+    height: 32px;
   }
 
   /* Estilos para ETAs */
-  .eta-container { margin-top: 0px;}
+  .eta-container {
+    margin-top: 10px;
+  }
   .eta-item {
-    margin-bottom: 24px;
+    margin-bottom: 20px;
     padding: 0px;
-    border-radius: 8px;
   }
   .eta-icons {
     display: flex;
@@ -68,20 +71,17 @@ PLUGIN: HORARIO DIARIO v3.8
     height: 36px;
     margin-right: 12px;
   }
-  .eta-tiempo {
-    font-size: 28px;
-    font-weight: 600;
-    color: #2c3e50;
-  }
   .eta-label {
-    font-size:28px;
+    font-size: 28px;
     vertical-align: top;
-    margin-right:20px
+    margin-right: 20px
   }
 
   /* Estilos para cumpleaños */
   .cumpleanos-container {
-    margin-bottom: 24px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
   }
 </style>
 
@@ -90,7 +90,7 @@ PLUGIN: HORARIO DIARIO v3.8
     assign festivos_str = "2025-10-31|Halloween|https://staticfilestrml.blob.core.windows.net/icons/festivos/halloween.svg;2025-11-03|Día do Ensino|https://staticfilestrml.blob.core.windows.net/icons/festivos/ensino.svg;2025-12-05|Constitución|https://staticfilestrml.blob.core.windows.net/icons/festivos/constitucion.svg;2025-12-08|Inmaculada Concepción|https://staticfilestrml.blob.core.windows.net/icons/festivos/virgen.png;2025-12-22..2026-01-07|Navidad|https://staticfilestrml.blob.core.windows.net/icons/festivos/christmas-tree.svg;2026-02-16..2026-02-18|Entroido|https://staticfilestrml.blob.core.windows.net/icons/festivos/entroido.png;2026-03-19|Día del Padre|https://staticfilestrml.blob.core.windows.net/icons/festivos/house-with-heart.svg;2026-03-20|Libre|https://staticfilestrml.blob.core.windows.net/icons/festivos/house-with-heart.svg;2026-03-30..2026-04-06|Semana Santa|https://staticfilestrml.blob.core.windows.net/icons/festivos/house-with-heart.svg;2026-05-01|Día del Trabajo|https://staticfilestrml.blob.core.windows.net/icons/festivos/house-with-heart.svg"
 
     # Lista de cumpleaños: formato "YYYY-MM-DD|Nombre;YYYY-MM-DD|Nombre;..."
-    assign cumpleanos_str = "1950-11-14|Abuela Ana;2017-11-22|Gabriel;1979-11-29|Juan Luis;1979-12-11|Tía Paula;1985-12-19|Dieguito;2022-12-21|Macarena;2024-12-23|Xoaniña;2017-12-28|Manuela/Pol;2015-01-01|Iria;2017-01-02|Pedro;2017-01-03|Paula;2022-01-15|Matías;2017-01-15|Carolina Paramés|2006-01-18;Iñigo;1981-01-21|Inés;2017-01-23|Noa;2022-02-07|Candela;2017-02-21|David;2022-02-03|Maggie;2022-03-12|Inés;2017-03-14|Marina;2022-04-02|Enzo"
+    assign cumpleanos_str = "1950-11-13|Abuela Ana;2017-11-22|Gabriel;1979-11-29|Juan Luis;1979-12-11|Tía Paula;1985-12-19|Dieguito;2022-12-21|Macarena;2024-12-23|Xoaniña;2017-12-28|Manuela/Pol;2015-01-01|Iria;2017-01-02|Pedro;2017-01-03|Paula;2022-01-15|Matías;2017-01-15|Carolina Paramés|2006-01-18;Iñigo;1981-01-21|Inés;2017-01-23|Noa;2022-02-07|Candela;2017-02-21|David;2022-02-03|Maggie;2022-03-12|Inés;2017-03-14|Marina;2022-04-02|Enzo"
 
     assign dias_es = "Domingo,Lunes,Martes,Miércoles,Jueves,Viernes,Sábado" | split: ','
     assign meses_es = "Enero,Febrero,Marzo,Abril,Mayo,Junio,Julio,Agosto,Septiembre,Octubre,Noviembre,Diciembre" | split: ','
@@ -320,13 +320,17 @@ PLUGIN: HORARIO DIARIO v3.8
           <div class="weather-item">
             <img class="image weather-icon" src="{{ weather_colegio_icon }}" alt="Tiempo" />
             <div class="weather-text">
-              <span class="weather-label">Cole:</span>
-              <span>{{ weather_colegio_text }}</span>
-              {% if weather_colegio_temperature %}
-              <span> {{ weather_colegio_temperature }}°</span>
-              {% endif %}
-              {% if weather_colegio_rain_3h %}
-              <span class="rain-warning">☂</span>
+              {% comment %} Fila 1: Temperatura {% endcomment %}
+              <div class="weather-row">
+                <img class="image temp-icon" src="https://staticfilestrml.blob.core.windows.net/icons/weather/thermometer-hand-drawn.svg" alt="Temp" />
+                <span>{{ weather_colegio_temperature }}°C</span>
+              </div>
+              {% comment %} Fila 2: Lluvia (solo si hay precipitación) {% endcomment %}
+              {% if weather_colegio_precipitation_today > 0 %}
+              <div class="weather-row">
+                <img class="image temp-icon" src="https://staticfilestrml.blob.core.windows.net/icons/weather/umbrella-hand-drawn.svg" alt="Lluvia" />
+                <span>{{ weather_colegio_precipitation_today }} mm</span>
+              </div>
               {% endif %}
             </div>
           </div>
@@ -339,13 +343,17 @@ PLUGIN: HORARIO DIARIO v3.8
           <div class="weather-item">
             <img class="image weather-icon" src="{{ weather_casa_icon }}" alt="Tiempo" />
             <div class="weather-text">
-              <span class="weather-label">Casa:</span>
-              <span>{{ weather_casa_text }}</span>
-              {% if weather_casa_temperature %}
-              <span> {{ weather_casa_temperature }}°</span>
-              {% endif %}
-              {% if weather_casa_rain_3h %}
-              <span class="rain-warning">☂</span>
+              {% comment %} Fila 1: Temperatura {% endcomment %}
+              <div class="weather-row">
+                <img class="image temp-icon" src="https://staticfilestrml.blob.core.windows.net/icons/weather/thermometer-hand-drawn.svg" alt="Temp" />
+                <span>{{ weather_casa_temperature }}°C</span>
+              </div>
+              {% comment %} Fila 2: Lluvia (solo si hay precipitación) {% endcomment %}
+              {% if weather_casa_precipitation_today > 0 %}
+              <div class="weather-row">
+                <img class="image temp-icon" src="https://staticfilestrml.blob.core.windows.net/icons/weather/umbrella-hand-drawn.svg" alt="Lluvia" />
+                <span>{{ weather_casa_precipitation_today }} mm</span>
+              </div>
               {% endif %}
             </div>
           </div>
@@ -357,7 +365,7 @@ PLUGIN: HORARIO DIARIO v3.8
       {% if hay_cumpleanos %}
       <div class="cumpleanos-container indie-flower-regular">
         <img class="image eta-icon-small" src="https://staticfilestrml.blob.core.windows.net/icons/festivos/birthday-cake-hand-drawn.svg" />
-        <span class="indie-flower-regular eta-label">{{ nombre_cumpleanos }} ({{ edad_cumpleanos }})</span>
+        <span class="indie-flower-regular eta-label">{{ nombre_cumpleanos }} {{ edad_cumpleanos }} años</span>
       </div>
       {% endif %}
 
