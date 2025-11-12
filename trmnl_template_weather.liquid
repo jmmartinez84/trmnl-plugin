@@ -25,31 +25,31 @@ PLUGIN: HORARIO DIARIO v3.8
   /* Estilos para Weather - Layout limpio sin position relative */
   .weather-container {
     text-align: center;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
   }
   .weather-item {
     display: block;
   }
   .weather-icon {
-    width: 140px;
-    height: 140px;
-    margin: 0 auto 10px auto;
+    width: 160px;
+    height: 160px;
+    margin: 0 auto 8px auto;
     display: block;
   }
   .weather-text {
-    font-size: 32px;
-    line-height: 1.4;
+    font-size: 30px;
+    line-height: 1.3;
   }
   .weather-row {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: 12px;
     margin: 4px 0;
   }
   .temp-icon {
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
   }
 
   /* Estilos para ETAs */
@@ -320,18 +320,15 @@ PLUGIN: HORARIO DIARIO v3.8
           <div class="weather-item">
             <img class="image weather-icon" src="{{ weather_colegio_icon }}" alt="Tiempo" />
             <div class="weather-text">
-              {% comment %} Fila 1: Temperatura {% endcomment %}
+              {% comment %} Temperatura y lluvia en la misma fila {% endcomment %}
               <div class="weather-row">
                 <img class="image temp-icon" src="https://staticfilestrml.blob.core.windows.net/icons/weather/thermometer-hand-drawn.svg" alt="Temp" />
                 <span>{{ weather_colegio_temperature }}°C</span>
-              </div>
-              {% comment %} Fila 2: Lluvia (solo si hay precipitación) {% endcomment %}
-              {% if weather_colegio_precipitation_today > 0 %}
-              <div class="weather-row">
+                {% if weather_colegio_precipitation_today > 0 %}
                 <img class="image temp-icon" src="https://staticfilestrml.blob.core.windows.net/icons/weather/umbrella-hand-drawn.svg" alt="Lluvia" />
                 <span>{{ weather_colegio_precipitation_today }} mm</span>
+                {% endif %}
               </div>
-              {% endif %}
             </div>
           </div>
         </div>
@@ -343,18 +340,15 @@ PLUGIN: HORARIO DIARIO v3.8
           <div class="weather-item">
             <img class="image weather-icon" src="{{ weather_casa_icon }}" alt="Tiempo" />
             <div class="weather-text">
-              {% comment %} Fila 1: Temperatura {% endcomment %}
+              {% comment %} Temperatura y lluvia en la misma fila {% endcomment %}
               <div class="weather-row">
                 <img class="image temp-icon" src="https://staticfilestrml.blob.core.windows.net/icons/weather/thermometer-hand-drawn.svg" alt="Temp" />
                 <span>{{ weather_casa_temperature }}°C</span>
-              </div>
-              {% comment %} Fila 2: Lluvia (solo si hay precipitación) {% endcomment %}
-              {% if weather_casa_precipitation_today > 0 %}
-              <div class="weather-row">
+                {% if weather_casa_precipitation_today > 0 %}
                 <img class="image temp-icon" src="https://staticfilestrml.blob.core.windows.net/icons/weather/umbrella-hand-drawn.svg" alt="Lluvia" />
                 <span>{{ weather_casa_precipitation_today }} mm</span>
+                {% endif %}
               </div>
-              {% endif %}
             </div>
           </div>
         </div>
