@@ -147,6 +147,142 @@ def get_meteogalicia_forecast(latitude: float, longitude: float, api_key: str) -
             "status_code": getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
         }
 
+def get_solar_info(latitude: float, longitude: float, api_key: str) -> dict:
+    """
+    Obtiene la información solar (salida/puesta del sol) de MeteoGalicia.
+
+    Args:
+        latitude: Latitud de la ubicación
+        longitude: Longitud de la ubicación
+        api_key: Clave de API de MeteoGalicia
+
+    Returns:
+        Respuesta de la API de MeteoGalicia con datos solares
+    """
+    url = "https://servizos.meteogalicia.gal/apiv4/getSolarInfo"
+
+    params = {
+        "coords": f"{longitude},{latitude}",
+        "lang": "es",
+        "API_KEY": api_key
+    }
+
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        return {
+            "success": True,
+            "data": response.json(),
+            "status_code": response.status_code
+        }
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error al llamar a MeteoGalicia Solar API: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "status_code": getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
+        }
+
+def parse_solar_info(solar_data: dict) -> dict:
+    """
+    Parsea los datos solares de MeteoGalicia y extrae sunrise/sunset del día actual.
+
+    Args:
+        solar_data: Respuesta de la API getSolarInfo de MeteoGalicia
+
+    Returns:
+        Diccionario con sunrise y sunset del día actual
+    """
+    if not solar_data.get('success'):
+        return {
+            "success": False,
+            "error": solar_data.get('error', 'Unknown error')
+        }
+
+    try:
+        data = solar_data['data']
+        features = data.get('features', [])
+
+        if not features or len(features) == 0:
+            return {
+                "success": False,
+                "error": "No solar data available"
+            }
+
+        # Obtener el primer feature
+        feature = features[0]
+        properties = feature.get('properties', {})
+        days = properties.get('days', [])
+
+        if not days or len(days) == 0:
+            return {
+                "success": False,
+                "error": "No daily solar data available"
+            }
+
+        spanish_tz = tz.gettz('Europe/Madrid')
+        now_spanish = datetime.now(spanish_tz)
+        today_date = now_spanish.strftime("%Y-%m-%d")
+
+        # Buscar datos del día actual
+        for day_data in days:
+            time_period = day_data.get('timePeriod', {})
+            begin_time_str = time_period.get('begin', {}).get('timeInstant', '')
+
+            if begin_time_str:
+                # Parsear la fecha del día
+                day_date = datetime.fromisoformat(begin_time_str).strftime("%Y-%m-%d")
+
+                if day_date == today_date:
+                    # Encontramos el día actual
+                    variables = day_data.get('variables', [])
+                    for var in variables:
+                        if var.get('name') == 'solar':
+                            sunrise_str = var.get('sunrise', '')
+                            sunset_str = var.get('sunset', '')
+
+                            if sunrise_str and sunset_str:
+                                sunrise = datetime.fromisoformat(sunrise_str)
+                                sunset = datetime.fromisoformat(sunset_str)
+
+                                return {
+                                    "success": True,
+                                    "sunrise": sunrise,
+                                    "sunset": sunset,
+                                    "duration": var.get('duration', 'N/A')
+                                }
+
+        # Si no encontramos el día actual, usar el primero disponible
+        first_day = days[0]
+        variables = first_day.get('variables', [])
+        for var in variables:
+            if var.get('name') == 'solar':
+                sunrise_str = var.get('sunrise', '')
+                sunset_str = var.get('sunset', '')
+
+                if sunrise_str and sunset_str:
+                    sunrise = datetime.fromisoformat(sunrise_str)
+                    sunset = datetime.fromisoformat(sunset_str)
+
+                    return {
+                        "success": True,
+                        "sunrise": sunrise,
+                        "sunset": sunset,
+                        "duration": var.get('duration', 'N/A')
+                    }
+
+        return {
+            "success": False,
+            "error": "Could not find solar data for today"
+        }
+
+    except Exception as e:
+        logging.error(f"Error al parsear datos solares de MeteoGalicia: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
 def parse_weather_forecast(forecast_data: dict, location_name: str) -> dict:
     """
     Parsea los datos de MeteoGalicia y extrae información relevante del día actual.
@@ -321,13 +457,14 @@ def map_weather_to_svg_icon(sky_state: str, is_night: bool = False, base_url: st
         # Para blob storage u otros, simplemente concatenar
         return f"{base_url}/{icon_filename}"
 
-def get_current_weather_summary(weather_info: dict, icons_base_url: str = None) -> dict:
+def get_current_weather_summary(weather_info: dict, icons_base_url: str = None, solar_info: dict = None) -> dict:
     """
     Obtiene un resumen del tiempo actual y para las próximas horas.
 
     Args:
         weather_info: Datos meteorológicos parseados
         icons_base_url: URL base para los iconos meteorológicos (opcional)
+        solar_info: Información solar (sunrise/sunset) parseada (opcional)
 
     Returns:
         Resumen del tiempo para mostrar en el display
@@ -409,9 +546,19 @@ def get_current_weather_summary(weather_info: dict, icons_base_url: str = None) 
     if selected_sky:
         current_sky = selected_sky.get('value', 'N/A')
 
-        # Determinar si es de noche (entre 20:00 y 08:00)
-        current_hour = now_spanish.hour
-        is_night = current_hour >= 20 or current_hour < 8
+        # Determinar si es de noche usando datos solares reales o fallback a horas fijas
+        is_night = False
+        if solar_info and solar_info.get('success'):
+            sunrise = solar_info.get('sunrise')
+            sunset = solar_info.get('sunset')
+            # Es de noche si la hora actual es antes del amanecer o después del atardecer
+            is_night = now_spanish < sunrise or now_spanish >= sunset
+            logging.info(f'  DEBUG: Usando datos solares - Amanecer: {sunrise.strftime("%H:%M")}, Atardecer: {sunset.strftime("%H:%M")}, Es noche: {is_night}')
+        else:
+            # Fallback: usar horas fijas si no hay datos solares
+            current_hour = now_spanish.hour
+            is_night = current_hour >= 20 or current_hour < 8
+            logging.info(f'  DEBUG: Usando horas fijas (fallback) - Hora: {current_hour}, Es noche: {is_night}')
 
         # Obtener icono SVG apropiado para TRMNL
         current_icon = map_weather_to_svg_icon(current_sky, is_night, icons_base_url)
@@ -895,6 +1042,27 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
     if meteogalicia_api_key and meteogalicia_api_key != 'your-meteogalicia-api-key-here':
         logging.info('🌤️ Obteniendo predicción meteorológica de MeteoGalicia...')
 
+        # Obtener información solar (amanecer/atardecer) para iconos día/noche precisos
+        logging.info('☀️ Obteniendo información solar (amanecer/atardecer)')
+        solar_data = get_solar_info(
+            latitude=config['coords_casa']['latitude'],
+            longitude=config['coords_casa']['longitude'],
+            api_key=meteogalicia_api_key
+        )
+
+        solar_info = None
+        if solar_data['success']:
+            solar_info = parse_solar_info(solar_data)
+            if solar_info.get('success'):
+                logging.info(f'  ✓ Amanecer: {solar_info["sunrise"].strftime("%H:%M")}')
+                logging.info(f'  ✓ Atardecer: {solar_info["sunset"].strftime("%H:%M")}')
+                logging.info(f'  ✓ Duración: {solar_info.get("duration", "N/A")}')
+            else:
+                logging.warning(f'  ⚠ Error al parsear datos solares: {solar_info.get("error")}')
+                solar_info = None
+        else:
+            logging.warning(f'  ⚠ Error al obtener datos solares: {solar_data.get("error")}')
+
         # Obtener predicción para casa
         logging.info('📍 Predicción para Casa')
         forecast_casa = get_meteogalicia_forecast(
@@ -906,7 +1074,7 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         if forecast_casa['success']:
             weather_info_casa = parse_weather_forecast(forecast_casa, 'casa')
             if weather_info_casa.get('success'):
-                weather_casa_summary = get_current_weather_summary(weather_info_casa, weather_icons_base_url)
+                weather_casa_summary = get_current_weather_summary(weather_info_casa, weather_icons_base_url, solar_info)
                 logging.info(f'  ✓ Tiempo actual: {weather_casa_summary.get("current_sky", "N/A")}')
                 logging.info(f'  ✓ Precipitación hoy: {weather_casa_summary.get("total_precipitation_today", 0)} mm')
             else:
@@ -925,7 +1093,7 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         if forecast_colegio['success']:
             weather_info_colegio = parse_weather_forecast(forecast_colegio, 'colegio')
             if weather_info_colegio.get('success'):
-                weather_colegio_summary = get_current_weather_summary(weather_info_colegio, weather_icons_base_url)
+                weather_colegio_summary = get_current_weather_summary(weather_info_colegio, weather_icons_base_url, solar_info)
                 logging.info(f'  ✓ Tiempo actual: {weather_colegio_summary.get("current_sky", "N/A")}')
                 logging.info(f'  ✓ Precipitación hoy: {weather_colegio_summary.get("total_precipitation_today", 0)} mm')
             else:

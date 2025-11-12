@@ -469,11 +469,14 @@ Asegúrate de que la variable de entorno esté configurada correctamente en Azur
 
 ### MeteoGalicia API
 - API gratuita de la Xunta de Galicia
-- **2 ubicaciones por ejecución** (casa + colegio)
+- **Endpoints utilizados**:
+  - `getSolarInfo`: Amanecer/atardecer para iconos día/noche precisos (1 llamada/ejecución)
+  - `getNumericForecastInfo`: Predicción meteorológica (2 ubicaciones: casa + colegio)
+- **Total**: 3 llamadas por ejecución (1 solar + 2 forecast)
 - Se ejecuta en todas las ventanas de visualización
-- **L-V**: 40 ejecuciones/día × 2 ubicaciones = 80 llamadas/día
-- **Domingo**: 24 ejecuciones/día × 2 ubicaciones = 48 llamadas/día
-- **Total**: ~590 llamadas/semana ≈ **~2540 llamadas/mes** (GRATIS)
+- **L-V**: 40 ejecuciones/día × 3 llamadas = 120 llamadas/día
+- **Domingo**: 24 ejecuciones/día × 3 llamadas = 72 llamadas/día
+- **Total**: ~864 llamadas/semana ≈ **~3720 llamadas/mes** (GRATIS)
 
 ### Azure Functions
 - Plan de Consumo: Primeras 1M ejecuciones gratis cada mes
