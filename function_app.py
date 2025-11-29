@@ -1076,8 +1076,7 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
             logging.warning(f'  ⚠ Error al obtener datos solares: {solar_data.get("error")}')
 
         # Determinar si mostrar el tiempo de hoy o mañana (a partir de las 19:00)
-        spanish_tz = tz.gettz('Europe/Madrid')
-        now_spanish = datetime.now(spanish_tz)
+        # Reuse spanish_tz and now_spanish defined earlier
         current_hour = now_spanish.hour
 
         weather_target_date = None  # None = hoy
