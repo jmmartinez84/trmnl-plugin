@@ -216,6 +216,7 @@ def send_visibility_only_to_webhook(show_routes: bool, webhook_url: str) -> dict
 
     Args:
         show_routes: Si las rutas deben mostrarse o no
+        webhook_url: URL del webhook de TRMNL donde enviar los datos
 
     Returns:
         Resultado del envío al webhook
@@ -248,7 +249,8 @@ def send_visibility_only_to_webhook(show_routes: bool, webhook_url: str) -> dict
             "status_code": getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
         }
 
-def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_time: datetime, webhook_url: str) -> dict:
+def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_time: datetime, 
+                          webhook_url: str, show_routes: bool) -> dict:
     """
     Envía los datos de las rutas al webhook de TRMNL en formato merge_variables.
 
@@ -256,15 +258,14 @@ def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_t
         route_directo: Datos de la ruta directa (Casa → Colegio)
         route_hospital: Datos de la ruta con hospital (Casa → Hospital → Colegio)
         departure_time: Hora de salida
+        webhook_url: URL del webhook de TRMNL donde enviar los datos
+        show_routes: Si las rutas deben mostrarse en la pantalla TRMNL
 
     Returns:
         Resultado del envío al webhook
     """
     spanish_tz = tz.gettz('Europe/Madrid')
     departure_time_spanish = departure_time.astimezone(spanish_tz)
-
-    # Determinar si se deben mostrar las rutas
-    show_routes = should_show_routes()
 
     # Inicializar merge_variables
     merge_vars = {
@@ -361,9 +362,18 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         logging.error('TRMNL_WEBHOOK_URL no está configurada. Por favor, configúrela en las variables de entorno.')
         return
 
-    if config['coords_casa']['latitude'] == 0 or config['coords_colegio']['latitude'] == 0:
-        logging.error('Coordenadas no configuradas correctamente. Revisa COORDS_CASA_LAT, COORDS_CASA_LON, etc.')
+    if (config['coords_casa']['latitude'] == 0 or config['coords_casa']['longitude'] == 0 or
+        config['coords_colegio']['latitude'] == 0 or config['coords_colegio']['longitude'] == 0 or
+        config['coords_hospital']['latitude'] == 0 or config['coords_hospital']['longitude'] == 0):
+        logging.error('Coordenadas no configuradas correctamente. Revisa todas las variables: COORDS_CASA_LAT, COORDS_CASA_LON, COORDS_COLEGIO_LAT, COORDS_COLEGIO_LON, COORDS_HOSPITAL_LAT, COORDS_HOSPITAL_LON')
         return
+
+    # Validar y loggear festivos configurados
+    if config['festivos']:
+        valid_festivos = [f.strip() for f in config['festivos'] if f.strip()]
+        logging.info(f'📅 Festivos configurados: {len(valid_festivos)} entradas')
+    else:
+        logging.info('📅 No hay festivos configurados')
 
     # Verificar si estamos en la ventana de tiempo para mostrar rutas (incluye check de festivos)
     show_routes = should_show_routes(config['festivos'])
@@ -440,7 +450,8 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
 
     # Enviar datos completos al webhook de TRMNL (aunque una ruta falle, enviamos lo que tengamos)
     logging.info('📤 Enviando datos completos al webhook de TRMNL...')
-    webhook_result = send_to_trmnl_webhook(route_directo, route_hospital, departure_time, config['webhook_url'])
+    webhook_result = send_to_trmnl_webhook(route_directo, route_hospital, departure_time, 
+                                          config['webhook_url'], show_routes=True)
 
     if webhook_result['success']:
         logging.info(f'✓ Proceso completado exitosamente')
