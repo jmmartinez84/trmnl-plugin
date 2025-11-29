@@ -370,8 +370,8 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
 
     # Validar y loggear festivos configurados
     if config['festivos']:
-        valid_festivos = [f.strip() for f in config['festivos'] if f.strip()]
-        logging.info(f'📅 Festivos configurados: {len(valid_festivos)} entradas')
+        valid_festivos_count = len([f.strip() for f in config['festivos'] if f.strip()])
+        logging.info(f'📅 Festivos configurados: {valid_festivos_count} entradas')
     else:
         logging.info('📅 No hay festivos configurados')
 
