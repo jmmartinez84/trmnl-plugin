@@ -212,6 +212,81 @@ func azure functionapp publish MyGoogleMapsFunction
 2. Haz clic en el icono de Azure en la barra lateral
 3. Despliega la función usando el botón "Deploy to Function App"
 
+### Usando GitHub Actions (Recomendado)
+
+El repositorio incluye una GitHub Action que despliega automáticamente la función a Azure cada vez que haces push a la rama `main`.
+
+#### Configuración Inicial
+
+1. **Crear los recursos de Azure** (si no los tienes ya):
+   ```bash
+   # Login a Azure
+   az login
+   
+   # Crear un resource group
+   az group create --name MyResourceGroup --location westeurope
+   
+   # Crear una storage account
+   az storage account create \
+     --name mystorageaccount \
+     --resource-group MyResourceGroup \
+     --location westeurope \
+     --sku Standard_LRS
+   
+   # Crear la Function App
+   az functionapp create \
+     --resource-group MyResourceGroup \
+     --consumption-plan-location westeurope \
+     --runtime python \
+     --runtime-version 3.9 \
+     --functions-version 4 \
+     --name MyGoogleMapsFunction \
+     --storage-account mystorageaccount \
+     --os-type Linux
+   ```
+
+2. **Obtener el perfil de publicación** desde Azure Portal:
+   - Ve a tu Function App en Azure Portal
+   - Haz clic en "Get publish profile" en la barra superior
+   - Se descargará un archivo `.PublishSettings`
+
+3. **Configurar los secretos en GitHub**:
+   - Ve a tu repositorio en GitHub
+   - Settings → Secrets and variables → Actions
+   - Agrega estos secretos:
+     - `AZURE_FUNCTIONAPP_NAME`: El nombre de tu Function App (ej: `MyGoogleMapsFunction`)
+     - `AZURE_FUNCTIONAPP_PUBLISH_PROFILE`: El contenido completo del archivo `.PublishSettings`
+
+4. **Configurar las variables de entorno en Azure**:
+   ```bash
+   az functionapp config appsettings set \
+     --name MyGoogleMapsFunction \
+     --resource-group MyResourceGroup \
+     --settings \
+       "GOOGLE_MAPS_API_KEY=tu-api-key" \
+       "TRMNL_WEBHOOK_URL=https://usetrmnl.com/api/custom_plugins/tu-uuid" \
+       "COORDS_CASA_LAT=40.416775" \
+       "COORDS_CASA_LON=-3.703790" \
+       "COORDS_COLEGIO_LAT=40.417638" \
+       "COORDS_COLEGIO_LON=-3.699500" \
+       "COORDS_HOSPITAL_LAT=40.420000" \
+       "COORDS_HOSPITAL_LON=-3.701000" \
+       "FESTIVOS=2025-10-31,2025-11-03,2025-12-22..2026-01-07"
+   ```
+
+#### Uso
+
+Una vez configurado:
+- **Despliegue automático**: Cada push a `main` desplegará automáticamente la función
+- **Despliegue manual**: Ve a Actions → Deploy Azure Function → Run workflow
+
+#### Verificar el Despliegue
+
+1. Ve a la pestaña "Actions" en tu repositorio de GitHub
+2. Verás el workflow "Deploy Azure Function" ejecutándose
+3. Una vez completado (✅), tu función estará desplegada en Azure
+4. Verifica los logs en Azure Portal para confirmar que todo funciona correctamente
+
 ## Personalización
 
 ### Cambiar Ubicaciones
