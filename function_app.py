@@ -451,7 +451,7 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
     # Enviar datos completos al webhook de TRMNL (aunque una ruta falle, enviamos lo que tengamos)
     logging.info('📤 Enviando datos completos al webhook de TRMNL...')
     webhook_result = send_to_trmnl_webhook(route_directo, route_hospital, departure_time, 
-                                          config['webhook_url'], show_routes=True)
+                                          config['webhook_url'], show_routes)
 
     if webhook_result['success']:
         logging.info(f'✓ Proceso completado exitosamente')
