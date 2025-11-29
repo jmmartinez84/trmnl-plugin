@@ -813,6 +813,7 @@ def send_visibility_only_to_webhook(show_routes: bool, webhook_url: str,
         show_routes: Si las rutas deben mostrarse o no
         weather_casa: Datos meteorológicos de casa (opcional)
         weather_colegio: Datos meteorológicos del colegio (opcional)
+        webhook_url: URL del webhook de TRMNL donde enviar los datos
 
     Returns:
         Resultado del envío al webhook
@@ -875,7 +876,7 @@ def send_visibility_only_to_webhook(show_routes: bool, webhook_url: str,
         }
 
 def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_time: datetime,
-                          webhook_url: str, weather_casa: dict = None, weather_colegio: dict = None) -> dict:
+                          webhook_url: str, show_routes: bool, weather_casa: dict = None, weather_colegio: dict = None) -> dict:
     """
     Envía los datos de las rutas al webhook de TRMNL en formato merge_variables.
 
@@ -885,15 +886,14 @@ def send_to_trmnl_webhook(route_directo: dict, route_hospital: dict, departure_t
         departure_time: Hora de salida
         weather_casa: Datos meteorológicos de casa (opcional)
         weather_colegio: Datos meteorológicos del colegio (opcional)
+        webhook_url: URL del webhook de TRMNL donde enviar los datos
+        show_routes: Si las rutas deben mostrarse en la pantalla TRMNL
 
     Returns:
         Resultado del envío al webhook
     """
     spanish_tz = tz.gettz('Europe/Madrid')
     departure_time_spanish = departure_time.astimezone(spanish_tz)
-
-    # Determinar si se deben mostrar las rutas
-    show_routes = should_show_routes()
 
     # Inicializar merge_variables
     merge_vars = {
@@ -1028,8 +1028,10 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         logging.error('TRMNL_WEBHOOK_URL no está configurada. Por favor, configúrela en las variables de entorno.')
         return
 
-    if config['coords_casa']['latitude'] == 0 or config['coords_colegio']['latitude'] == 0:
-        logging.error('Coordenadas no configuradas correctamente. Revisa COORDS_CASA_LAT, COORDS_CASA_LON, etc.')
+    if (config['coords_casa']['latitude'] == 0 or config['coords_casa']['longitude'] == 0 or
+        config['coords_colegio']['latitude'] == 0 or config['coords_colegio']['longitude'] == 0 or
+        config['coords_hospital']['latitude'] == 0 or config['coords_hospital']['longitude'] == 0):
+        logging.error('Coordenadas no configuradas correctamente. Revisa todas las variables: COORDS_CASA_LAT, COORDS_CASA_LON, COORDS_COLEGIO_LAT, COORDS_COLEGIO_LON, COORDS_HOSPITAL_LAT, COORDS_HOSPITAL_LON')
         return
 
     # Obtener API key de MeteoGalicia
@@ -1159,6 +1161,12 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
             logging.error(f'  ✗ Error al obtener predicción: {forecast_colegio.get("error")}')
     else:
         logging.warning('METEOGALICIA_API_KEY no está configurada. No se obtendrá información meteorológica.')
+    # Validar y loggear festivos configurados
+    if config['festivos']:
+        valid_festivos_count = len([f.strip() for f in config['festivos'] if f.strip()])
+        logging.info(f'📅 Festivos configurados: {valid_festivos_count} entradas')
+    else:
+        logging.info('📅 No hay festivos configurados')
 
     # Verificar si estamos en la ventana de tiempo para mostrar rutas (incluye check de festivos)
     show_routes = should_show_routes(config['festivos'])
@@ -1246,7 +1254,8 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         departure_time,
         config['webhook_url'],
         weather_casa=weather_casa_summary,
-        weather_colegio=weather_colegio_summary
+        weather_colegio=weather_colegio_summary,
+        show_routes
     )
 
     if webhook_result['success']:
