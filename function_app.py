@@ -331,7 +331,10 @@ def parse_weather_forecast(forecast_data: dict, location_name: str) -> dict:
             "days": []
         }
 
-        for day_data in days[:4]:  # Primeros 4 días
+        # Procesamos solo los primeros 4 días porque:
+        # - El API puede devolver más días, pero solo los próximos 4 son relevantes para nuestro caso de uso (por ejemplo, mostrar previsión a corto plazo).
+        # - Si se requiere más días en el futuro, ajustar este límite.
+        for day_data in days[:4]:
             time_period = day_data.get('timePeriod', {})
             begin_time_str = time_period.get('begin', {}).get('timeInstant', '')
 
