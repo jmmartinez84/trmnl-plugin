@@ -1257,7 +1257,7 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         config['webhook_url'],
         weather_casa=weather_casa_summary,
         weather_colegio=weather_colegio_summary,
-        show_routes
+        show_routes=show_routes
     )
 
     if webhook_result['success']:
