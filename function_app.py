@@ -292,7 +292,43 @@ def parse_weather_forecast(forecast_data: dict, location_name: str) -> dict:
         location_name: Nombre de la ubicación (ej: "casa", "colegio")
 
     Returns:
-        Diccionario con datos meteorológicos procesados
+        Diccionario con datos meteorológicos procesados con la siguiente estructura:
+        
+        En caso de éxito:
+        {
+            "success": True,
+            "location": str,  # Nombre de la ubicación
+            "days": [  # Array con datos de hasta 4 días
+                {
+                    "date": str,  # Fecha en formato "YYYY-MM-DD"
+                    "sky_state": [  # Estados del cielo a lo largo del día
+                        {
+                            "time": str,  # Momento temporal en formato ISO
+                            "value": str,  # Estado del cielo (ej: "Clear sky")
+                            "icon": str   # URL del icono
+                        }
+                    ],
+                    "precipitation": [  # Precipitaciones a lo largo del día
+                        {
+                            "time": str,  # Momento temporal en formato ISO
+                            "value": float  # Cantidad de precipitación
+                        }
+                    ],
+                    "temperature": [  # Temperaturas a lo largo del día
+                        {
+                            "time": str,  # Momento temporal en formato ISO
+                            "value": float  # Temperatura en grados Celsius
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        En caso de error:
+        {
+            "success": False,
+            "error": str  # Mensaje de error
+        }
     """
     if not forecast_data.get('success'):
         return {
