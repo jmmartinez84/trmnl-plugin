@@ -9,6 +9,7 @@ import pandas as pd
 from io import StringIO
 from azure.data.tables import TableClient
 from azure.core.exceptions import ResourceNotFoundError, ResourceExistsError
+from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
 
 app = func.FunctionApp()
 
@@ -1385,3 +1386,207 @@ def timer_trigger_rain_check(myTimer: func.TimerRequest) -> None:
     except Exception as e:
         logging.error(f'Error en comprobación de lluvia: {str(e)}')
         logging.exception(e)
+
+# ============================================================================
+# RAIN IMAGE ENDPOINT WITH SAS TOKEN
+# ============================================================================
+
+# Configuración para el endpoint de imágenes
+BLOB_ACCOUNT_NAME = "staticfilestrmnlsa"
+BLOB_CONTAINER_NAME = "images"
+BLOB_BASE_URL = f"https://{BLOB_ACCOUNT_NAME}.blob.core.windows.net/{BLOB_CONTAINER_NAME}"
+
+def calculate_rain_time():
+    """
+    Calcula el tiempo transcurrido desde la última lluvia.
+    
+    Returns:
+        tuple: (hours, days) sin llover, o (None, None) si hay error
+    """
+    try:
+        last_rain_stored = get_last_rain_persisted()
+        
+        spanish_tz = tz.gettz('Europe/Madrid')
+        now = datetime.now(spanish_tz)
+        
+        # Asegurarse de que last_rain_stored tenga zona horaria
+        if last_rain_stored.tzinfo is None:
+            last_rain_stored = last_rain_stored.replace(tzinfo=spanish_tz)
+        
+        diff = now - last_rain_stored
+        hours_without_rain = diff.total_seconds() / 3600
+        days_without_rain = diff.total_seconds() / (24 * 3600)
+        
+        return hours_without_rain, days_without_rain
+    except Exception as e:
+        logging.error(f"Error al calcular tiempo sin lluvia: {str(e)}")
+        return None, None
+
+def get_image_number(hours_without_rain):
+    """
+    Determina el número de imagen (00-10) basado en las horas sin llover.
+    
+    Args:
+        hours_without_rain: Horas transcurridas sin lluvia
+    
+    Returns:
+        str: Número de imagen con formato "00" a "10"
+    """
+    if hours_without_rain is None:
+        return "00"
+    
+    # Rangos de tiempo:
+    # 00: < 24h (< 1 día)
+    # 01: 24h - 48h (1-2 días)
+    # 02: 48h - 72h (2-3 días)
+    # 03: 72h - 96h (3-4 días)
+    # 04: 96h - 120h (4-5 días)
+    # 05: 120h - 144h (5-6 días)
+    # 06: 144h - 168h (6-7 días)
+    # 07: 168h - 192h (7-8 días)
+    # 08: 192h - 216h (8-9 días)
+    # 09: 216h - 240h (9-10 días)
+    # 10: >= 240h (>= 10 días)
+    
+    days = hours_without_rain / 24
+    
+    if days < 1:
+        return "00"
+    elif days < 2:
+        return "01"
+    elif days < 3:
+        return "02"
+    elif days < 4:
+        return "03"
+    elif days < 5:
+        return "04"
+    elif days < 6:
+        return "05"
+    elif days < 7:
+        return "06"
+    elif days < 8:
+        return "07"
+    elif days < 9:
+        return "08"
+    elif days < 10:
+        return "09"
+    else:
+        return "10"
+
+def generate_sas_url(blob_name, validity_hours=1):
+    """
+    Genera una URL con SAS token para un blob específico.
+    
+    Args:
+        blob_name: Nombre del blob (ej: "dias-sin-llover-00-full.png")
+        validity_hours: Horas de validez del token SAS (default: 1)
+    
+    Returns:
+        str: URL completa con SAS token, o None si hay error
+    """
+    try:
+        # Obtener la clave de la cuenta de almacenamiento desde variables de entorno
+        account_key = os.environ.get('AZURE_STORAGE_ACCOUNT_KEY')
+        
+        if not account_key:
+            logging.error("AZURE_STORAGE_ACCOUNT_KEY no está configurada")
+            return None
+        
+        # Generar SAS token
+        sas_token = generate_blob_sas(
+            account_name=BLOB_ACCOUNT_NAME,
+            container_name=BLOB_CONTAINER_NAME,
+            blob_name=blob_name,
+            account_key=account_key,
+            permission=BlobSasPermissions(read=True),
+            expiry=datetime.now(tz.UTC) + timedelta(hours=validity_hours)
+        )
+        
+        # Construir URL completa
+        sas_url = f"{BLOB_BASE_URL}/{blob_name}?{sas_token}"
+        
+        return sas_url
+    except Exception as e:
+        logging.error(f"Error al generar SAS token: {str(e)}")
+        return None
+
+@app.route(route="rain-image", methods=["GET"])
+def rain_image_endpoint(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Endpoint HTTP que devuelve la URL de la imagen correspondiente según el tiempo sin llover.
+    
+    Retorna JSON con formato:
+    {
+        "imageUrl": "https://staticfilestrmnlsa.blob.core.windows.net/images/dias-sin-llover-XX-full.png?sas_token",
+        "value_h": "5.5",
+        "value_d": "0.2"
+    }
+    
+    Se puede llamar cada 15 minutos. El SAS token es válido por 1 hora.
+    """
+    logging.info('HTTP trigger: rain-image endpoint')
+    
+    try:
+        # Calcular tiempo sin llover
+        hours, days = calculate_rain_time()
+        
+        if hours is None or days is None:
+            return func.HttpResponse(
+                json.dumps({
+                    "error": "No se pudo calcular el tiempo sin lluvia",
+                    "imageUrl": None,
+                    "value_h": "0",
+                    "value_d": "0"
+                }),
+                mimetype="application/json",
+                status_code=500
+            )
+        
+        # Determinar número de imagen
+        image_number = get_image_number(hours)
+        blob_name = f"dias-sin-llover-{image_number}-full.png"
+        
+        # Generar URL con SAS token
+        image_url = generate_sas_url(blob_name, validity_hours=1)
+        
+        if not image_url:
+            return func.HttpResponse(
+                json.dumps({
+                    "error": "No se pudo generar la URL con SAS token",
+                    "imageUrl": None,
+                    "value_h": f"{hours:.1f}",
+                    "value_d": f"{days:.2f}"
+                }),
+                mimetype="application/json",
+                status_code=500
+            )
+        
+        # Preparar respuesta
+        response_data = {
+            "imageUrl": image_url,
+            "value_h": f"{hours:.1f}",
+            "value_d": f"{days:.2f}"
+        }
+        
+        logging.info(f'Imagen seleccionada: {blob_name} (días: {days:.2f}, horas: {hours:.1f})')
+        
+        return func.HttpResponse(
+            json.dumps(response_data),
+            mimetype="application/json",
+            status_code=200
+        )
+        
+    except Exception as e:
+        logging.error(f'Error en rain-image endpoint: {str(e)}')
+        logging.exception(e)
+        
+        return func.HttpResponse(
+            json.dumps({
+                "error": str(e),
+                "imageUrl": None,
+                "value_h": "0",
+                "value_d": "0"
+            }),
+            mimetype="application/json",
+            status_code=500
+        )
