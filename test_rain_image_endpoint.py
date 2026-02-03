@@ -195,6 +195,9 @@ class TestRainImageEndpoint(unittest.TestCase):
         
         self.assertIn("error", data)
         self.assertIsNone(data["imageUrl"])
+        # Values should be None when calculation fails
+        self.assertIsNone(data["value_h"])
+        self.assertIsNone(data["value_d"])
     
     @patch('function_app.calculate_rain_time')
     @patch('function_app.generate_sas_url')

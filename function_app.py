@@ -1535,8 +1535,8 @@ def rain_image_endpoint(req: func.HttpRequest) -> func.HttpResponse:
                 json.dumps({
                     "error": "No se pudo calcular el tiempo sin lluvia",
                     "imageUrl": None,
-                    "value_h": "0",
-                    "value_d": "0"
+                    "value_h": None,
+                    "value_d": None
                 }),
                 mimetype="application/json",
                 status_code=500
@@ -1584,8 +1584,8 @@ def rain_image_endpoint(req: func.HttpRequest) -> func.HttpResponse:
             json.dumps({
                 "error": str(e),
                 "imageUrl": None,
-                "value_h": "0",
-                "value_d": "0"
+                "value_h": None,
+                "value_d": None
             }),
             mimetype="application/json",
             status_code=500
