@@ -5,6 +5,10 @@ import os
 import requests
 from datetime import datetime, timedelta
 from dateutil import tz
+import pandas as pd
+from io import StringIO
+from azure.data.tables import TableClient
+from azure.core.exceptions import ResourceNotFoundError
 
 app = func.FunctionApp()
 
@@ -1266,3 +1270,117 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         logging.info(f'Respuesta del webhook: {webhook_result.get("response", "N/A")}')
     else:
         logging.error(f'✗ Error al enviar al webhook: {webhook_result.get("error", "Unknown error")}')
+
+# ============================================================================
+# RAIN MONITORING FUNCTIONALITY
+# ============================================================================
+
+# Configuración para monitoreo de lluvia
+CSV_URL = "https://www.aemet.es/es/eltiempo/observacion/ultimosdatos_1495_datos-horarios.csv?k=gal&l=1495&datos=det&w=0&f=precipitacion&x=h24"
+TABLE_NAME = "WeatherStatus"
+
+def get_last_rain_persisted():
+    """Recupera la última fecha de lluvia guardada en Azure Table Storage."""
+    connection_string = os.getenv("AzureWebJobsStorage")
+    if not connection_string:
+        logging.error("AzureWebJobsStorage no está configurada")
+        return pd.to_datetime("2000-01-01 00:00:00")
+    
+    try:
+        table_client = TableClient.from_connection_string(connection_string, TABLE_NAME)
+        entity = table_client.get_entity(partition_key="RainStatus", row_key="LastRainDate")
+        return pd.to_datetime(entity["TimestampValue"])
+    except ResourceNotFoundError:
+        logging.info("No se encontró fecha de lluvia previa, usando fecha por defecto")
+        return pd.to_datetime("2000-01-01 00:00:00")
+    except Exception as e:
+        logging.error(f"Error al recuperar fecha de lluvia: {str(e)}")
+        return pd.to_datetime("2000-01-01 00:00:00")
+
+def update_last_rain_persisted(new_date):
+    """Actualiza la fecha de la última lluvia en el almacenamiento."""
+    connection_string = os.getenv("AzureWebJobsStorage")
+    if not connection_string:
+        logging.error("AzureWebJobsStorage no está configurada")
+        return
+    
+    try:
+        table_client = TableClient.from_connection_string(connection_string, TABLE_NAME)
+        # Crear la tabla si no existe
+        try:
+            table_client.create_table()
+        except:
+            pass  # La tabla ya existe
+            
+        entity = {
+            "PartitionKey": "RainStatus",
+            "RowKey": "LastRainDate",
+            "TimestampValue": new_date.isoformat()
+        }
+        table_client.upsert_entity(entity)
+        logging.info(f"Fecha de lluvia actualizada: {new_date}")
+    except Exception as e:
+        logging.error(f"Error al actualizar fecha de lluvia: {str(e)}")
+
+@app.timer_trigger(schedule="0 */15 * * * *", arg_name="myTimer", run_on_startup=False,
+              use_monitor=False)
+def timer_trigger_rain_check(myTimer: func.TimerRequest) -> None:
+    """
+    Función de Azure que se ejecuta cada 15 minutos para monitorear lluvia en Vigo.
+    
+    Descarga el CSV de AEMET, procesa los datos de precipitación y calcula el tiempo
+    sin llover utilizando Azure Table Storage para persistir la última fecha de lluvia.
+    """
+    logging.info('Iniciando comprobación de lluvia...')
+
+    try:
+        # 1. Descargar el CSV
+        response = requests.get(CSV_URL, timeout=30)
+        response.encoding = 'latin-1'
+        csv_data = response.text
+
+        # 2. Procesar CSV (saltando las primeras 3 líneas de metadatos)
+        df = pd.read_csv(StringIO(csv_data), skiprows=3, encoding='latin-1')
+
+        # Identificar columnas (AEMET puede cambiar nombres por tildes/encoding)
+        precip_col = [c for c in df.columns if 'Precip' in c][0]
+        date_col = [c for c in df.columns if 'Fecha' in c][0]
+
+        df[date_col] = pd.to_datetime(df[date_col], format='%d/%m/%Y %H:%M')
+        df[precip_col] = pd.to_numeric(df[precip_col], errors='coerce').fillna(0)
+
+        # 3. Buscar lluvia en el CSV actual
+        rainy_hours = df[df[precip_col] > 0]
+        
+        last_rain_csv = None
+        if not rainy_hours.empty:
+            last_rain_csv = rainy_hours[date_col].max()
+
+        # 4. Gestionar persistencia
+        last_rain_stored = get_last_rain_persisted()
+        
+        # Si detectamos lluvia más reciente en el CSV, actualizamos
+        if last_rain_csv is not None and last_rain_csv > last_rain_stored:
+            update_last_rain_persisted(last_rain_csv)
+            current_last_rain = last_rain_csv
+            logging.info(f'🌧️ Lluvia detectada en CSV: {last_rain_csv}')
+        else:
+            current_last_rain = last_rain_stored
+
+        # 5. Calcular tiempo sin llover
+        spanish_tz = tz.gettz('Europe/Madrid')
+        now = datetime.now(spanish_tz)
+        
+        # Asegurarse de que current_last_rain tenga zona horaria
+        if current_last_rain.tzinfo is None:
+            current_last_rain = current_last_rain.replace(tzinfo=spanish_tz)
+        
+        diff = now - current_last_rain
+        days_without_rain = diff.total_seconds() / (24 * 3600)
+
+        logging.info(f'Última lluvia registrada: {current_last_rain}')
+        logging.info(f'Lleva sin llover: {days_without_rain:.2f} días ({diff.total_seconds() / 3600:.1f} horas)')
+        
+    except Exception as e:
+        logging.error(f'Error en comprobación de lluvia: {str(e)}')
+        logging.exception(e)
