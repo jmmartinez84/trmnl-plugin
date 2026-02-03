@@ -1011,6 +1011,7 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
     # Obtener hora actual
     current_time_utc = datetime.now(utc)
     current_time_spanish = current_time_utc.astimezone(spanish_tz)
+    now_spanish = current_time_spanish  # Alias para compatibilidad con código posterior
 
     logging.info(f'Timer trigger ejecutado a las {current_time_utc.strftime("%Y-%m-%d %H:%M:%S")} UTC')
     logging.info(f'Hora española: {current_time_spanish.strftime("%Y-%m-%d %H:%M:%S %Z")}')
