@@ -8,7 +8,7 @@ from dateutil import tz
 import pandas as pd
 from io import StringIO
 from azure.data.tables import TableClient
-from azure.core.exceptions import ResourceNotFoundError
+from azure.core.exceptions import ResourceNotFoundError, ResourceExistsError
 
 app = func.FunctionApp()
 
@@ -1278,13 +1278,14 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
 # Configuración para monitoreo de lluvia
 CSV_URL = "https://www.aemet.es/es/eltiempo/observacion/ultimosdatos_1495_datos-horarios.csv?k=gal&l=1495&datos=det&w=0&f=precipitacion&x=h24"
 TABLE_NAME = "WeatherStatus"
+DEFAULT_LAST_RAIN_DATE = "2000-01-01 00:00:00"
 
 def get_last_rain_persisted():
     """Recupera la última fecha de lluvia guardada en Azure Table Storage."""
     connection_string = os.getenv("AzureWebJobsStorage")
     if not connection_string:
         logging.error("AzureWebJobsStorage no está configurada")
-        return pd.to_datetime("2000-01-01 00:00:00")
+        return pd.to_datetime(DEFAULT_LAST_RAIN_DATE)
     
     try:
         table_client = TableClient.from_connection_string(connection_string, TABLE_NAME)
@@ -1292,10 +1293,10 @@ def get_last_rain_persisted():
         return pd.to_datetime(entity["TimestampValue"])
     except ResourceNotFoundError:
         logging.info("No se encontró fecha de lluvia previa, usando fecha por defecto")
-        return pd.to_datetime("2000-01-01 00:00:00")
+        return pd.to_datetime(DEFAULT_LAST_RAIN_DATE)
     except Exception as e:
         logging.error(f"Error al recuperar fecha de lluvia: {str(e)}")
-        return pd.to_datetime("2000-01-01 00:00:00")
+        return pd.to_datetime(DEFAULT_LAST_RAIN_DATE)
 
 def update_last_rain_persisted(new_date):
     """Actualiza la fecha de la última lluvia en el almacenamiento."""
@@ -1309,7 +1310,7 @@ def update_last_rain_persisted(new_date):
         # Crear la tabla si no existe
         try:
             table_client.create_table()
-        except:
+        except ResourceExistsError:
             pass  # La tabla ya existe
             
         entity = {
