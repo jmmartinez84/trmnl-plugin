@@ -1324,11 +1324,11 @@ def update_last_rain_persisted(new_date):
     except Exception as e:
         logging.error(f"Error al actualizar fecha de lluvia: {str(e)}")
 
-@app.timer_trigger(schedule="0 */15 * * * *", arg_name="myTimer", run_on_startup=False,
+@app.timer_trigger(schedule="0 */30 * * * *", arg_name="myTimer", run_on_startup=False,
               use_monitor=False)
 def timer_trigger_rain_check(myTimer: func.TimerRequest) -> None:
     """
-    Función de Azure que se ejecuta cada 15 minutos para monitorear lluvia en Vigo.
+    Función de Azure que se ejecuta cada 30 minutos para monitorear lluvia en Vigo.
     
     Descarga el CSV de AEMET, procesa los datos de precipitación y calcula el tiempo
     sin llover utilizando Azure Table Storage para persistir la última fecha de lluvia.
