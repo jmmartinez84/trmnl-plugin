@@ -1,3 +1,6 @@
 azure-functions
 requests
 python-dateutil
+pandas
+azure-data-tables
+azure-storage-blob

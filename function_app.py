@@ -5,6 +5,11 @@ import os
 import requests
 from datetime import datetime, timedelta
 from dateutil import tz
+import pandas as pd
+from io import StringIO
+from azure.data.tables import TableClient
+from azure.core.exceptions import ResourceNotFoundError, ResourceExistsError
+from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
 
 app = func.FunctionApp()
 
@@ -1266,3 +1271,322 @@ def google_maps_route_trigger(myTimer: func.TimerRequest) -> None:
         logging.info(f'Respuesta del webhook: {webhook_result.get("response", "N/A")}')
     else:
         logging.error(f'✗ Error al enviar al webhook: {webhook_result.get("error", "Unknown error")}')
+
+# ============================================================================
+# RAIN MONITORING FUNCTIONALITY
+# ============================================================================
+
+# Configuración para monitoreo de lluvia
+CSV_URL = "https://www.aemet.es/es/eltiempo/observacion/ultimosdatos_1495_datos-horarios.csv?k=gal&l=1495&datos=det&w=0&f=precipitacion&x=h24"
+TABLE_NAME = "WeatherStatus"
+DEFAULT_LAST_RAIN_DATE = "2000-01-01 00:00:00"
+
+def get_last_rain_persisted():
+    """Recupera la última fecha de lluvia guardada en Azure Table Storage."""
+    connection_string = os.getenv("AzureWebJobsStorage")
+    if not connection_string:
+        logging.error("AzureWebJobsStorage no está configurada")
+        return pd.to_datetime(DEFAULT_LAST_RAIN_DATE)
+    
+    try:
+        table_client = TableClient.from_connection_string(connection_string, TABLE_NAME)
+        entity = table_client.get_entity(partition_key="RainStatus", row_key="LastRainDate")
+        return pd.to_datetime(entity["TimestampValue"])
+    except ResourceNotFoundError:
+        logging.info("No se encontró fecha de lluvia previa, usando fecha por defecto")
+        return pd.to_datetime(DEFAULT_LAST_RAIN_DATE)
+    except Exception as e:
+        logging.error(f"Error al recuperar fecha de lluvia: {str(e)}")
+        return pd.to_datetime(DEFAULT_LAST_RAIN_DATE)
+
+def update_last_rain_persisted(new_date):
+    """Actualiza la fecha de la última lluvia en el almacenamiento."""
+    connection_string = os.getenv("AzureWebJobsStorage")
+    if not connection_string:
+        logging.error("AzureWebJobsStorage no está configurada")
+        return
+    
+    try:
+        table_client = TableClient.from_connection_string(connection_string, TABLE_NAME)
+        # Crear la tabla si no existe
+        try:
+            table_client.create_table()
+        except ResourceExistsError:
+            pass  # La tabla ya existe
+            
+        entity = {
+            "PartitionKey": "RainStatus",
+            "RowKey": "LastRainDate",
+            "TimestampValue": new_date.isoformat()
+        }
+        table_client.upsert_entity(entity)
+        logging.info(f"Fecha de lluvia actualizada: {new_date}")
+    except Exception as e:
+        logging.error(f"Error al actualizar fecha de lluvia: {str(e)}")
+
+@app.timer_trigger(schedule="0 */15 * * * *", arg_name="myTimer", run_on_startup=False,
+              use_monitor=False)
+def timer_trigger_rain_check(myTimer: func.TimerRequest) -> None:
+    """
+    Función de Azure que se ejecuta cada 15 minutos para monitorear lluvia en Vigo.
+    
+    Descarga el CSV de AEMET, procesa los datos de precipitación y calcula el tiempo
+    sin llover utilizando Azure Table Storage para persistir la última fecha de lluvia.
+    """
+    logging.info('Iniciando comprobación de lluvia...')
+
+    try:
+        # 1. Descargar el CSV
+        response = requests.get(CSV_URL, timeout=30)
+        response.encoding = 'latin-1'
+        csv_data = response.text
+
+        # 2. Procesar CSV (saltando las primeras 3 líneas de metadatos)
+        df = pd.read_csv(StringIO(csv_data), skiprows=3, encoding='latin-1')
+
+        # Identificar columnas (AEMET puede cambiar nombres por tildes/encoding)
+        precip_col = [c for c in df.columns if 'Precip' in c][0]
+        date_col = [c for c in df.columns if 'Fecha' in c][0]
+
+        df[date_col] = pd.to_datetime(df[date_col], format='%d/%m/%Y %H:%M')
+        df[precip_col] = pd.to_numeric(df[precip_col], errors='coerce').fillna(0)
+
+        # 3. Buscar lluvia en el CSV actual
+        rainy_hours = df[df[precip_col] > 0]
+        
+        last_rain_csv = None
+        if not rainy_hours.empty:
+            last_rain_csv = rainy_hours[date_col].max()
+
+        # 4. Gestionar persistencia
+        last_rain_stored = get_last_rain_persisted()
+        
+        # Si detectamos lluvia más reciente en el CSV, actualizamos
+        if last_rain_csv is not None and last_rain_csv > last_rain_stored:
+            update_last_rain_persisted(last_rain_csv)
+            current_last_rain = last_rain_csv
+            logging.info(f'🌧️ Lluvia detectada en CSV: {last_rain_csv}')
+        else:
+            current_last_rain = last_rain_stored
+
+        # 5. Calcular tiempo sin llover
+        spanish_tz = tz.gettz('Europe/Madrid')
+        now = datetime.now(spanish_tz)
+        
+        # Asegurarse de que current_last_rain tenga zona horaria
+        if current_last_rain.tzinfo is None:
+            current_last_rain = current_last_rain.replace(tzinfo=spanish_tz)
+        
+        diff = now - current_last_rain
+        days_without_rain = diff.total_seconds() / (24 * 3600)
+
+        logging.info(f'Última lluvia registrada: {current_last_rain}')
+        logging.info(f'Lleva sin llover: {days_without_rain:.2f} días ({diff.total_seconds() / 3600:.1f} horas)')
+        
+    except Exception as e:
+        logging.error(f'Error en comprobación de lluvia: {str(e)}')
+        logging.exception(e)
+
+# ============================================================================
+# RAIN IMAGE ENDPOINT WITH SAS TOKEN
+# ============================================================================
+
+# Configuración para el endpoint de imágenes
+BLOB_ACCOUNT_NAME = "staticfilestrmnlsa"
+BLOB_CONTAINER_NAME = "images"
+BLOB_BASE_URL = f"https://{BLOB_ACCOUNT_NAME}.blob.core.windows.net/{BLOB_CONTAINER_NAME}"
+
+def calculate_rain_time():
+    """
+    Calcula el tiempo transcurrido desde la última lluvia.
+    
+    Returns:
+        tuple: (hours, days) sin llover, o (None, None) si hay error
+    """
+    try:
+        last_rain_stored = get_last_rain_persisted()
+        
+        spanish_tz = tz.gettz('Europe/Madrid')
+        now = datetime.now(spanish_tz)
+        
+        # Asegurarse de que last_rain_stored tenga zona horaria
+        if last_rain_stored.tzinfo is None:
+            last_rain_stored = last_rain_stored.replace(tzinfo=spanish_tz)
+        
+        diff = now - last_rain_stored
+        hours_without_rain = diff.total_seconds() / 3600
+        days_without_rain = diff.total_seconds() / (24 * 3600)
+        
+        return hours_without_rain, days_without_rain
+    except Exception as e:
+        logging.error(f"Error al calcular tiempo sin lluvia: {str(e)}")
+        return None, None
+
+def get_image_number(hours_without_rain):
+    """
+    Determina el número de imagen (00-10) basado en las horas sin llover.
+    
+    Args:
+        hours_without_rain: Horas transcurridas sin lluvia
+    
+    Returns:
+        str: Número de imagen con formato "00" a "10"
+    """
+    if hours_without_rain is None:
+        return "00"
+    
+    # Rangos de tiempo:
+    # 00: < 24h (< 1 día)
+    # 01: 24h - 48h (1-2 días)
+    # 02: 48h - 72h (2-3 días)
+    # 03: 72h - 96h (3-4 días)
+    # 04: 96h - 120h (4-5 días)
+    # 05: 120h - 144h (5-6 días)
+    # 06: 144h - 168h (6-7 días)
+    # 07: 168h - 192h (7-8 días)
+    # 08: 192h - 216h (8-9 días)
+    # 09: 216h - 240h (9-10 días)
+    # 10: >= 240h (>= 10 días)
+    
+    days = hours_without_rain / 24
+    
+    if days < 1:
+        return "00"
+    elif days < 2:
+        return "01"
+    elif days < 3:
+        return "02"
+    elif days < 4:
+        return "03"
+    elif days < 5:
+        return "04"
+    elif days < 6:
+        return "05"
+    elif days < 7:
+        return "06"
+    elif days < 8:
+        return "07"
+    elif days < 9:
+        return "08"
+    elif days < 10:
+        return "09"
+    else:
+        return "10"
+
+def generate_sas_url(blob_name, validity_hours=1):
+    """
+    Genera una URL con SAS token para un blob específico.
+    
+    Args:
+        blob_name: Nombre del blob (ej: "dias-sin-llover-00-full.png")
+        validity_hours: Horas de validez del token SAS (default: 1)
+    
+    Returns:
+        str: URL completa con SAS token, o None si hay error
+    """
+    try:
+        # Obtener la clave de la cuenta de almacenamiento desde variables de entorno
+        account_key = os.environ.get('AZURE_STORAGE_ACCOUNT_KEY')
+        
+        if not account_key:
+            logging.error("AZURE_STORAGE_ACCOUNT_KEY no está configurada")
+            return None
+        
+        # Generar SAS token
+        sas_token = generate_blob_sas(
+            account_name=BLOB_ACCOUNT_NAME,
+            container_name=BLOB_CONTAINER_NAME,
+            blob_name=blob_name,
+            account_key=account_key,
+            permission=BlobSasPermissions(read=True),
+            expiry=datetime.now(tz.UTC) + timedelta(hours=validity_hours)
+        )
+        
+        # Construir URL completa
+        sas_url = f"{BLOB_BASE_URL}/{blob_name}?{sas_token}"
+        
+        return sas_url
+    except Exception as e:
+        logging.error(f"Error al generar SAS token: {str(e)}")
+        return None
+
+@app.route(route="rain-image", methods=["GET"])
+def rain_image_endpoint(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Endpoint HTTP que devuelve la URL de la imagen correspondiente según el tiempo sin llover.
+    
+    Retorna JSON con formato:
+    {
+        "imageUrl": "https://staticfilestrmnlsa.blob.core.windows.net/images/dias-sin-llover-XX-full.png?sas_token",
+        "value_h": "5.5",
+        "value_d": "0.2"
+    }
+    
+    Se puede llamar cada 15 minutos. El SAS token es válido por 1 hora.
+    """
+    logging.info('HTTP trigger: rain-image endpoint')
+    
+    try:
+        # Calcular tiempo sin llover
+        hours, days = calculate_rain_time()
+        
+        if hours is None or days is None:
+            return func.HttpResponse(
+                json.dumps({
+                    "error": "No se pudo calcular el tiempo sin lluvia",
+                    "imageUrl": None,
+                    "value_h": None,
+                    "value_d": None
+                }),
+                mimetype="application/json",
+                status_code=500
+            )
+        
+        # Determinar número de imagen
+        image_number = get_image_number(hours)
+        blob_name = f"dias-sin-llover-{image_number}-full.png"
+        
+        # Generar URL con SAS token
+        image_url = generate_sas_url(blob_name, validity_hours=1)
+        
+        if not image_url:
+            return func.HttpResponse(
+                json.dumps({
+                    "error": "No se pudo generar la URL con SAS token",
+                    "imageUrl": None,
+                    "value_h": f"{hours:.1f}",
+                    "value_d": f"{days:.2f}"
+                }),
+                mimetype="application/json",
+                status_code=500
+            )
+        
+        # Preparar respuesta
+        response_data = {
+            "imageUrl": image_url,
+            "value_h": f"{hours:.1f}",
+            "value_d": f"{days:.2f}"
+        }
+        
+        logging.info(f'Imagen seleccionada: {blob_name} (días: {days:.2f}, horas: {hours:.1f})')
+        
+        return func.HttpResponse(
+            json.dumps(response_data),
+            mimetype="application/json",
+            status_code=200
+        )
+        
+    except Exception as e:
+        logging.error(f'Error en rain-image endpoint: {str(e)}')
+        logging.exception(e)
+        
+        return func.HttpResponse(
+            json.dumps({
+                "error": str(e),
+                "imageUrl": None,
+                "value_h": None,
+                "value_d": None
+            }),
+            mimetype="application/json",
+            status_code=500
+        )
